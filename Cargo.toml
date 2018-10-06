@@ -1,0 +1,6 @@
+[package]
+name = "http-test-server"
+version = "0.1.0"
+authors = ["Vinicius Gerevini <viniciusgerevini@gmail.com>"]
+
+[dependencies]
