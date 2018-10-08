@@ -1,35 +1,45 @@
+pub mod resource;
+
 use std::thread;
 use std::net::TcpListener;
 use std::net::TcpStream;
 use std::io::prelude::*;
 use std::io::Error;
+use std::sync::Arc;
+use std::sync::Mutex;
+use std::collections::HashMap;
+
+use resource::Resource;
 
 pub struct TestServer {
-    port: u16
+    port: u16,
+    resources: Arc<Mutex<HashMap<String, Arc<Resource>>>>
 }
 
 impl TestServer {
     pub fn new() -> Result<TestServer, Error> {
         let listener = TcpListener::bind("localhost:0").unwrap();
         let port = listener.local_addr()?.port();
+        let resources = Arc::new(Mutex::new(HashMap::new()));
+
+        let res = Arc::clone(&resources);
 
         thread::spawn(move || {
             for stream in listener.incoming() {
                 let mut stream = stream.unwrap();
 
                 let mut buffer = [0; 512];
-                stream.read(&mut buffer).unwrap();
+                stream.peek(&mut buffer).unwrap();
 
                 if buffer.starts_with(b"CLOSE") {
                     break;
                 }
 
-                stream.write(b"HTTP/1.1 404 Not Found\r\n").unwrap();
-                stream.flush().unwrap();
+                handle_client(&mut stream, res.clone());
             }
         });
 
-        Ok(TestServer{ port })
+        Ok(TestServer{ port, resources })
     }
 
     pub fn port(&self) -> u16 {
@@ -41,6 +51,33 @@ impl TestServer {
         stream.write(b"CLOSE")?;
         stream.flush()?;
         Ok(())
+    }
+
+    pub fn create_resource(&self, uri: &str) -> Arc<Resource> {
+        let mut resources = self.resources.lock().unwrap();
+        let resource = Arc::new(Resource::new());
+        resources.insert(String::from(uri), resource.clone());
+        resource
+    }
+}
+
+fn handle_client(stream: &mut TcpStream, resources: Arc<Mutex<HashMap<String, Arc<Resource>>>>) {
+    let resources = resources.lock().unwrap();
+
+    let mut buffer = [0; 512];
+    stream.read(&mut buffer).unwrap();
+
+    if let Some(resource) = resources.get("/something") {
+        let response = format!(
+            "HTTP/1.1 {}\r\n",
+            resource.get_status_description()
+        );
+
+        stream.write(response.as_bytes()).unwrap();
+        stream.flush().unwrap();
+    } else {
+        stream.write(b"HTTP/1.1 404 Not Found\r\n").unwrap();
+        stream.flush().unwrap();
     }
 }
 
@@ -72,6 +109,7 @@ mod tests {
         reader.read_line(&mut line).unwrap();
 
         assert_eq!(line, "HTTP/1.1 404 Not Found\r\n");
+        server.close().unwrap();
     }
 
     #[test]
@@ -80,6 +118,9 @@ mod tests {
         let server_2 = TestServer::new().unwrap();
 
         assert_ne!(server.port(), server_2.port());
+
+        server.close().unwrap();
+        server_2.close().unwrap();
     }
 
     #[test]
@@ -94,5 +135,49 @@ mod tests {
         if let Err(e) = stream {
             assert_eq!(e.kind(), ErrorKind::ConnectionRefused);
         }
+    }
+
+    #[test]
+    fn should_create_resource() {
+        let server = TestServer::new().unwrap();
+        server.create_resource("/something");
+
+        let host = format!("localhost:{}", server.port());
+        let mut stream = TcpStream::connect(host).unwrap();
+
+        let request = "GET /something HTTP/1.1\r\n\r\n";
+
+        stream.write(request.as_bytes()).unwrap();
+        stream.flush().unwrap();
+
+        let mut reader = BufReader::new(stream);
+        let mut line = String::new();
+        reader.read_line(&mut line).unwrap();
+
+        assert_eq!(line, "HTTP/1.1 204 No Content\r\n");
+        server.close().unwrap();
+    }
+
+    #[test]
+    fn should_return_configured_status_for_resource_resource() {
+        let server = TestServer::new().unwrap();
+        let resource = server.create_resource("/something");
+
+        resource.status(200);
+
+        let host = format!("localhost:{}", server.port());
+        let mut stream = TcpStream::connect(host).unwrap();
+
+        let request = "GET /something HTTP/1.1\r\n\r\n";
+
+        stream.write(request.as_bytes()).unwrap();
+        stream.flush().unwrap();
+
+        let mut reader = BufReader::new(stream);
+        let mut line = String::new();
+        reader.read_line(&mut line).unwrap();
+
+        assert_eq!(line, "HTTP/1.1 200 Ok\r\n");
+        server.close().unwrap();
     }
 }
