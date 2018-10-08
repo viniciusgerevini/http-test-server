@@ -87,6 +87,7 @@ mod tests {
     use std::io::BufReader;
     use std::io::ErrorKind;
     use std::net::TcpStream;
+    use std::time::Duration;
     use super::*;
 
     fn make_request(port: u16, uri: &str) -> TcpStream {
@@ -131,6 +132,8 @@ mod tests {
     fn should_close_connection() {
         let server = TestServer::new().unwrap();
         server.close().unwrap();
+
+        thread::sleep(Duration::from_millis(200));
 
         let host = format!("localhost:{}", server.port());
         let stream = TcpStream::connect(host);
