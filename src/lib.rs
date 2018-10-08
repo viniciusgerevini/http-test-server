@@ -89,20 +89,24 @@ mod tests {
     use std::net::TcpStream;
     use super::*;
 
-
-    #[test]
-    fn returns_404_when_requested_enexistent_resource() {
-        let server = TestServer::new().unwrap();
-
-        let host = format!("localhost:{}", server.port());
+    fn make_request(port: u16, uri: &str) -> TcpStream {
+        let host = format!("localhost:{}", port);
         let mut stream = TcpStream::connect(host).unwrap();
         let request = format!(
-            "GET /something HTTP/1.1\r\nHost: http://localhost:{}\r\n\r\n",
-            server.port()
+            "GET {} HTTP/1.1\r\n\r\n",
+            uri
         );
 
         stream.write(request.as_bytes()).unwrap();
         stream.flush().unwrap();
+
+        stream
+    }
+
+    #[test]
+    fn returns_404_when_requested_enexistent_resource() {
+        let server = TestServer::new().unwrap();
+        let stream = make_request(server.port(), "/something");
 
         let mut reader = BufReader::new(stream);
         let mut line = String::new();
@@ -142,13 +146,7 @@ mod tests {
         let server = TestServer::new().unwrap();
         server.create_resource("/something");
 
-        let host = format!("localhost:{}", server.port());
-        let mut stream = TcpStream::connect(host).unwrap();
-
-        let request = "GET /something HTTP/1.1\r\n\r\n";
-
-        stream.write(request.as_bytes()).unwrap();
-        stream.flush().unwrap();
+        let stream = make_request(server.port(), "/something");
 
         let mut reader = BufReader::new(stream);
         let mut line = String::new();
@@ -165,13 +163,7 @@ mod tests {
 
         resource.status(200);
 
-        let host = format!("localhost:{}", server.port());
-        let mut stream = TcpStream::connect(host).unwrap();
-
-        let request = "GET /something HTTP/1.1\r\n\r\n";
-
-        stream.write(request.as_bytes()).unwrap();
-        stream.flush().unwrap();
+        let stream = make_request(server.port(), "/something");
 
         let mut reader = BufReader::new(stream);
         let mut line = String::new();
