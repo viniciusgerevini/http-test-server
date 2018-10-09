@@ -5,6 +5,7 @@ use std::net::TcpListener;
 use std::net::TcpStream;
 use std::io::prelude::*;
 use std::io::Error;
+use std::io::BufReader;
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::collections::HashMap;
@@ -35,7 +36,7 @@ impl TestServer {
                     break;
                 }
 
-                handle_client(&mut stream, res.clone());
+                handle_client(&stream, res.clone());
             }
         });
 
@@ -61,25 +62,46 @@ impl TestServer {
     }
 }
 
-fn handle_client(stream: &mut TcpStream, resources: Arc<Mutex<HashMap<String, Arc<Resource>>>>) {
-    let resources = resources.lock().unwrap();
+fn handle_client(stream: &TcpStream, resources: Arc<Mutex<HashMap<String, Arc<Resource>>>>) {
+    let stream = stream.try_clone().unwrap();
 
-    let mut buffer = [0; 512];
-    stream.read(&mut buffer).unwrap();
+    thread::spawn(move || {
+        let mut write_stream = stream.try_clone().unwrap();
+        let mut reader = BufReader::new(stream);
 
-    if let Some(resource) = resources.get("/something") {
-        let response = format!(
-            "HTTP/1.1 {}\r\n",
-            resource.get_status_description()
-        );
+        let mut request_header = String::from("");
+        reader.read_line(&mut request_header).unwrap();
 
-        stream.write(response.as_bytes()).unwrap();
-        stream.flush().unwrap();
-    } else {
-        stream.write(b"HTTP/1.1 404 Not Found\r\n").unwrap();
-        stream.flush().unwrap();
-    }
+        let request_header: Vec<&str> = request_header
+            .split_whitespace().collect();
+
+        let url = request_header[1];
+
+        for line in reader.lines() {
+            let line = line.unwrap();
+            let resources = resources.lock().unwrap();
+
+            if let Some(resource) = resources.get(url) {
+                let response = format!(
+                    "HTTP/1.1 {}\r\n\r\n{}",
+                    resource.get_status_description(),
+                    resource.get_body()
+                );
+
+                write_stream.write(response.as_bytes()).unwrap();
+                write_stream.flush().unwrap();
+            } else {
+                write_stream.write(b"HTTP/1.1 404 Not Found\r\n").unwrap();
+                write_stream.flush().unwrap();
+            }
+
+            if line == "" {
+                break;
+            }
+        }
+    });
 }
+
 
 #[cfg(test)]
 mod tests {
@@ -162,17 +184,34 @@ mod tests {
     #[test]
     fn should_return_configured_status_for_resource_resource() {
         let server = TestServer::new().unwrap();
-        let resource = server.create_resource("/something");
+        let resource = server.create_resource("/something-else");
 
         resource.status(200);
 
-        let stream = make_request(server.port(), "/something");
+        let stream = make_request(server.port(), "/something-else");
 
         let mut reader = BufReader::new(stream);
         let mut line = String::new();
         reader.read_line(&mut line).unwrap();
 
         assert_eq!(line, "HTTP/1.1 200 Ok\r\n");
+        server.close().unwrap();
+    }
+
+    #[test]
+    fn should_return_resource_body() {
+        let server = TestServer::new().unwrap();
+        let resource = server.create_resource("/something-else");
+
+        resource.status(200).body("<some body>");
+
+        let stream = make_request(server.port(), "/something-else");
+
+        let mut reader = BufReader::new(stream);
+        let mut line = String::new();
+        reader.read_to_string(&mut line).unwrap();
+
+        assert_eq!(line, "HTTP/1.1 200 Ok\r\n\r\n<some body>");
         server.close().unwrap();
     }
 }
