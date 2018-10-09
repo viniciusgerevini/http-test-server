@@ -32,6 +32,10 @@ impl Method {
             Method::PATCH => "PATCH"
         }
     }
+
+    pub fn equal(&self, value: &str) -> bool {
+       self.value() == value
+    }
 }
 
 pub struct TestServer {
@@ -58,7 +62,7 @@ impl TestServer {
                     break;
                 }
 
-                handle_client(&stream, res.clone());
+                handle_connection(&stream, res.clone());
             }
         });
 
@@ -85,56 +89,51 @@ impl TestServer {
     }
 }
 
-fn handle_client(stream: &TcpStream, resources: ServerResources) {
+fn handle_connection(stream: &TcpStream, resources: ServerResources) {
     let stream = stream.try_clone().unwrap();
 
     thread::spawn(move || {
         let mut write_stream = stream.try_clone().unwrap();
         let mut reader = BufReader::new(stream);
 
-        let mut request_header = String::from("");
-        reader.read_line(&mut request_header).unwrap();
+        let (method, url) = parse_request_header(&mut reader);
+        let response = create_response(method, url, resources);
 
-        let request_header: Vec<&str> = request_header
-            .split_whitespace().collect();
-
-        let (method, url) = (request_header[0], request_header[1]);
+        write_stream.write(response.as_bytes()).unwrap();
+        write_stream.flush().unwrap();
 
         for line in reader.lines() {
             let line = line.unwrap();
-            let resources = resources.lock().unwrap();
-
-            if let Some(resource) = resources.get(url) {
-                let resource = resource.iter().find(|r| {
-                    r.get_method().value() == method
-                });
-
-                match resource {
-                    Some(resource) => {
-                        let response = format!(
-                            "HTTP/1.1 {}\r\n\r\n{}",
-                            resource.get_status_description(),
-                            resource.get_body()
-                        );
-
-                        write_stream.write(response.as_bytes()).unwrap();
-                        write_stream.flush().unwrap();
-                    },
-                    None => {
-                        write_stream.write(b"HTTP/1.1 405 Method Not Allowed\r\n\r\n").unwrap();
-                        write_stream.flush().unwrap();
-                    }
-                }
-            } else {
-                write_stream.write(b"HTTP/1.1 404 Not Found\r\n").unwrap();
-                write_stream.flush().unwrap();
-            }
-
             if line == "" {
                 break;
             }
         }
     });
+}
+
+fn parse_request_header(reader: &mut BufRead) -> (String, String) {
+    let mut request_header = String::from("");
+    reader.read_line(&mut request_header).unwrap();
+
+    let request_header: Vec<&str> = request_header
+        .split_whitespace().collect();
+
+    (request_header[0].to_string(), request_header[1].to_string())
+}
+
+fn create_response(method: String, url: String, resources: ServerResources) -> String {
+    match resources.lock().unwrap().get(&url) {
+        Some(resources) =>
+            match resources.iter().find(|r| { r.get_method().equal(&method) }) {
+                Some(resource) => format!(
+                    "HTTP/1.1 {}\r\n\r\n{}",
+                    resource.get_status_description(),
+                    resource.get_body()
+                ),
+                None => String::from("HTTP/1.1 405 Method Not Allowed\r\n\r\n")
+            },
+        None => String::from("HTTP/1.1 404 Not Found\r\n\r\n")
+    }
 }
 
 
