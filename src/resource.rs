@@ -1,17 +1,21 @@
 use std::sync::Arc;
 use std::sync::Mutex;
 
+use ::Method;
+
 #[derive(Debug)]
 pub struct Resource {
     status_code: Arc<Mutex<u16>>,
-    body: Arc<Mutex<&'static str>>
+    body: Arc<Mutex<&'static str>>,
+    method: Arc<Mutex<Method>>
 }
 
 impl Resource {
     pub fn new() -> Resource {
         Resource {
             status_code: Arc::new(Mutex::new(204)),
-            body: Arc::new(Mutex::new(""))
+            body: Arc::new(Mutex::new("")),
+            method: Arc::new(Mutex::new(Method::GET))
         }
     }
 
@@ -31,6 +35,14 @@ impl Resource {
         self
     }
 
+    pub fn method(&self, method: Method) -> &Resource {
+        if let Ok(mut m) = self.method.lock() {
+            *m = method;
+        }
+
+        self
+    }
+
     pub fn get_status_description(&self) -> String {
         http_status_description(*self.status_code.lock().unwrap())
     }
@@ -40,6 +52,10 @@ impl Resource {
             Ok(body) => *body,
             _ => ""
         }
+    }
+
+    pub fn get_method(&self) -> Method {
+        (*self.method.lock().unwrap()).clone()
     }
 }
 
