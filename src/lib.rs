@@ -1,4 +1,5 @@
 pub mod resource;
+pub mod http;
 
 use std::thread;
 use std::net::TcpListener;
@@ -10,33 +11,10 @@ use std::sync::Arc;
 use std::sync::Mutex;
 use std::collections::HashMap;
 use resource::Resource;
+use http::Method;
+use http::Status;
 
 type ServerResources = Arc<Mutex<HashMap<String, Vec<Arc<Resource>>>>>;
-
-#[derive(Debug, Clone, PartialEq)]
-pub enum Method {
-    GET,
-    POST,
-    PUT,
-    DELETE,
-    PATCH
-}
-
-impl Method {
-    fn value(&self) -> &'static str {
-        match self {
-            Method::GET => "GET",
-            Method::POST => "POST",
-            Method::PUT => "PUT",
-            Method::DELETE => "DELETE",
-            Method::PATCH => "PATCH"
-        }
-    }
-
-    pub fn equal(&self, value: &str) -> bool {
-       self.value() == value
-    }
-}
 
 pub struct TestServer {
     port: u16,
@@ -125,17 +103,12 @@ fn create_response(method: String, url: String, resources: ServerResources) -> S
     match resources.lock().unwrap().get(&url) {
         Some(resources) =>
             match resources.iter().find(|r| { r.get_method().equal(&method) }) {
-                Some(resource) => format!(
-                    "HTTP/1.1 {}\r\n\r\n{}",
-                    resource.get_status_description(),
-                    resource.get_body()
-                ),
-                None => String::from("HTTP/1.1 405 Method Not Allowed\r\n\r\n")
+                Some(resource) => resource.to_response_string(),
+                None => Resource::new().status(Status::MethodNotAllowed).to_response_string()
             },
-        None => String::from("HTTP/1.1 404 Not Found\r\n\r\n")
+        None => Resource::new().status(Status::NotFound).to_response_string()
     }
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -229,7 +202,7 @@ mod tests {
         let server = TestServer::new().unwrap();
         let resource = server.create_resource("/something-else");
 
-        resource.status(200);
+        resource.status(Status::OK);
 
         let stream = make_request(server.port(), "/something-else");
 
@@ -246,7 +219,7 @@ mod tests {
         let server = TestServer::new().unwrap();
         let resource = server.create_resource("/something-else");
 
-        resource.status(200).body("<some body>");
+        resource.status(Status::OK).body("<some body>");
 
         let stream = make_request(server.port(), "/something-else");
 
@@ -263,7 +236,7 @@ mod tests {
         let server = TestServer::new().unwrap();
         let resource = server.create_resource("/something-else");
 
-        resource.method(Method::POST).status(200).body("<some body>");
+        resource.method(Method::POST).status(Status::OK).body("<some body>");
 
         let stream = make_post_request(server.port(), "/something-else");
 
@@ -280,7 +253,7 @@ mod tests {
         let server = TestServer::new().unwrap();
         let resource = server.create_resource("/something-else");
 
-        resource.method(Method::POST).status(200).body("<some body>");
+        resource.method(Method::POST).status(Status::OK).body("<some body>");
 
         let stream = make_request(server.port(), "/something-else");
 
