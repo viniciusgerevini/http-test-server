@@ -103,7 +103,10 @@ fn create_response(method: String, url: String, resources: ServerResources) -> S
     match resources.lock().unwrap().get(&url) {
         Some(resources) =>
             match resources.iter().find(|r| { r.get_method().equal(&method) }) {
-                Some(resource) => resource.to_response_string(),
+                Some(resource) => {
+                    resource.increment_request_count();
+                    resource.to_response_string()
+                },
                 None => Resource::new().status(Status::MethodNotAllowed).to_response_string()
             },
         None => Resource::new().status(Status::NotFound).to_response_string()
@@ -262,6 +265,25 @@ mod tests {
         reader.read_to_string(&mut line).unwrap();
 
         assert_eq!(line, "HTTP/1.1 405 Method Not Allowed\r\n\r\n");
+        server.close().unwrap();
+    }
+
+    #[test]
+    fn should_increment_request_count() {
+        let server = TestServer::new().unwrap();
+        let resource = server.create_resource("/something-else");
+
+        resource.status(Status::OK).body("<some body>");
+
+        assert_eq!(resource.request_count(), 0);
+
+        let _ = make_request(server.port(), "/something-else");
+        let _ = make_request(server.port(), "/something-else");
+
+        thread::sleep(Duration::from_millis(200));
+
+        assert_eq!(resource.request_count(), 2);
+
         server.close().unwrap();
     }
 }
