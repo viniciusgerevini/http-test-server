@@ -12,7 +12,7 @@ pub struct Resource {
     headers: Arc<Mutex<HashMap<String, String>>>,
     body: Arc<Mutex<&'static str>>,
     method: Arc<Mutex<Method>>,
-    request_count: Mutex<u32>
+    request_count: Arc<Mutex<u32>>
 }
 
 impl Resource {
@@ -23,7 +23,7 @@ impl Resource {
             headers: Arc::new(Mutex::new(HashMap::new())),
             body: Arc::new(Mutex::new("")),
             method: Arc::new(Mutex::new(Method::GET)),
-            request_count: Mutex::new(0)
+            request_count: Arc::new(Mutex::new(0))
         }
     }
 
@@ -103,6 +103,19 @@ impl Resource {
     }
 }
 
+impl Clone for Resource {
+    fn clone(&self) -> Self {
+        Resource {
+            status_code: self.status_code.clone(),
+            custom_status_code: self.custom_status_code.clone(),
+            headers: self.headers.clone(),
+            body: self.body.clone(),
+            method: self.method.clone(),
+            request_count: self.request_count.clone()
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -175,5 +188,15 @@ mod tests {
         assert_eq!(resource.request_count(), 3);
     }
 
+    #[test]
+    fn clones_should_share_same_state() {
+        let resource = Resource::new();
+        let dolly = resource.clone();
 
+        resource.increment_request_count();
+        dolly.increment_request_count();
+
+        assert_eq!(resource.request_count(), dolly.request_count());
+        assert_eq!(resource.request_count(), 2);
+    }
 }

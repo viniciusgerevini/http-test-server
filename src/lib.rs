@@ -14,7 +14,7 @@ use resource::Resource;
 use http::Method;
 use http::Status;
 
-type ServerResources = Arc<Mutex<HashMap<String, Vec<Arc<Resource>>>>>;
+type ServerResources = Arc<Mutex<HashMap<String, Vec<Resource>>>>;
 
 pub struct TestServer {
     port: u16,
@@ -58,9 +58,9 @@ impl TestServer {
         Ok(())
     }
 
-    pub fn create_resource(&self, uri: &str) -> Arc<Resource> {
+    pub fn create_resource(&self, uri: &str) -> Resource {
         let mut resources = self.resources.lock().unwrap();
-        let resource = Arc::new(Resource::new());
+        let resource = Resource::new();
         resources.insert(String::from(uri), vec!(resource.clone()));
 
         resource
