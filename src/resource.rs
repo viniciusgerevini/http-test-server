@@ -8,13 +8,15 @@ use ::Status;
 pub struct Resource {
     status_code: Arc<Mutex<Status>>,
     body: Arc<Mutex<&'static str>>,
-    method: Arc<Mutex<Method>>
+    method: Arc<Mutex<Method>>,
+    custom_status_code: Arc<Mutex<Option<String>>>
 }
 
 impl Resource {
     pub fn new() -> Resource {
         Resource {
             status_code: Arc::new(Mutex::new(Status::NoContent)),
+            custom_status_code: Arc::new(Mutex::new(None)),
             body: Arc::new(Mutex::new("")),
             method: Arc::new(Mutex::new(Method::GET))
         }
@@ -25,6 +27,24 @@ impl Resource {
             *status = status_code;
         }
 
+        if let Ok(mut custom_status) = self.custom_status_code.lock() {
+            *custom_status = None;
+        }
+
+        self
+    }
+
+    fn get_status_description(&self) -> String {
+        match *(self.custom_status_code.lock().unwrap()) {
+            Some(ref custom_status) => custom_status.clone(),
+            None => self.status_code.lock().unwrap().description().to_string()
+        }
+    }
+
+    pub fn custom_status(&self, status_code: u16, description: &str) -> &Resource {
+        if let Ok(mut status) = self.custom_status_code.lock() {
+            *status = Some(format!("{} {}", status_code, description));
+        }
         self
     }
 
@@ -50,7 +70,7 @@ impl Resource {
 
     pub fn to_response_string(&self) -> String {
         format!("HTTP/1.1 {}\r\n\r\n{}",
-            self.status_code.lock().unwrap().description(),
+            self.get_status_description(),
             *(self.body.lock().unwrap())
         )
     }
@@ -74,5 +94,21 @@ mod tests {
         resource_not_found.status(Status::Accepted).body("hello!");
 
         assert_eq!(resource_not_found.to_response_string(), "HTTP/1.1 202 Accepted\r\n\r\nhello!");
+    }
+
+    #[test]
+    fn should_allows_custom_status() {
+        let resource_not_found = Resource::new();
+        resource_not_found.custom_status(666, "The Number Of The Beast").body("hello!");
+
+        assert_eq!(resource_not_found.to_response_string(), "HTTP/1.1 666 The Number Of The Beast\r\n\r\nhello!");
+    }
+
+    #[test]
+    fn should_overwrite_custom_status_with_status() {
+        let resource_not_found = Resource::new();
+        resource_not_found.custom_status(666, "The Number Of The Beast").status(Status::Forbidden).body("hello!");
+
+        assert_eq!(resource_not_found.to_response_string(), "HTTP/1.1 403 Forbidden\r\n\r\nhello!");
     }
 }
