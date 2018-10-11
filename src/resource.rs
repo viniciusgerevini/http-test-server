@@ -1,5 +1,6 @@
 use std::sync::Arc;
 use std::sync::Mutex;
+use std::collections::HashMap;
 
 use ::Method;
 use ::Status;
@@ -7,9 +8,10 @@ use ::Status;
 #[derive(Debug)]
 pub struct Resource {
     status_code: Arc<Mutex<Status>>,
+    custom_status_code: Arc<Mutex<Option<String>>>,
+    headers: Arc<Mutex<HashMap<String, String>>>,
     body: Arc<Mutex<&'static str>>,
-    method: Arc<Mutex<Method>>,
-    custom_status_code: Arc<Mutex<Option<String>>>
+    method: Arc<Mutex<Method>>
 }
 
 impl Resource {
@@ -17,6 +19,7 @@ impl Resource {
         Resource {
             status_code: Arc::new(Mutex::new(Status::NoContent)),
             custom_status_code: Arc::new(Mutex::new(None)),
+            headers: Arc::new(Mutex::new(HashMap::new())),
             body: Arc::new(Mutex::new("")),
             method: Arc::new(Mutex::new(Method::GET))
         }
@@ -48,6 +51,19 @@ impl Resource {
         self
     }
 
+    pub fn header(&self, header_name: &str, header_value: &str) -> &Resource {
+        let mut headers = self.headers.lock().unwrap();
+        headers.insert(String::from(header_name), String::from(header_value));
+        self
+    }
+
+    fn get_headers(&self) -> String {
+        let headers = self.headers.lock().unwrap();
+        headers.iter().fold(String::new(), | headers, (name, value) | {
+            headers + &format!("{}: {}\r\n", name, value)
+        })
+    }
+
     pub fn body(&self, content: &'static str) -> &Resource {
         if let Ok(mut body) = self.body.lock() {
             *body = content;
@@ -69,8 +85,9 @@ impl Resource {
     }
 
     pub fn to_response_string(&self) -> String {
-        format!("HTTP/1.1 {}\r\n\r\n{}",
+        format!("HTTP/1.1 {}\r\n{}\r\n{}",
             self.get_status_description(),
+            self.get_headers(),
             *(self.body.lock().unwrap())
         )
     }
@@ -110,5 +127,29 @@ mod tests {
         resource_not_found.custom_status(666, "The Number Of The Beast").status(Status::Forbidden).body("hello!");
 
         assert_eq!(resource_not_found.to_response_string(), "HTTP/1.1 403 Forbidden\r\n\r\nhello!");
+    }
+
+    #[test]
+    fn should_add_headers() {
+        let resource_not_found = Resource::new();
+        resource_not_found
+            .header("Content-Type", "application/json")
+            .body("hello!");
+
+        assert_eq!(resource_not_found.to_response_string(), "HTTP/1.1 204 No Content\r\nContent-Type: application/json\r\n\r\nhello!");
+    }
+
+    #[test]
+    fn should_append_headers() {
+        let resource_not_found = Resource::new();
+        resource_not_found
+            .header("Content-Type", "application/json")
+            .header("Connection", "Keep-Alive")
+            .body("hello!");
+
+        let response = resource_not_found.to_response_string();
+
+        assert!(response.contains("Content-Type: application/json\r\n"));
+        assert!(response.contains("Connection: Keep-Alive\r\n"));
     }
 }
