@@ -75,17 +75,19 @@ fn handle_connection(stream: &TcpStream, resources: ServerResources) {
         let mut reader = BufReader::new(stream);
 
         let (method, url) = parse_request_header(&mut reader);
-        let response = create_response(method, url, resources);
+        let resource = create_response(method, url, resources);
 
-        write_stream.write(response.as_bytes()).unwrap();
+        write_stream.write(resource.to_response_string().as_bytes()).unwrap();
         write_stream.flush().unwrap();
 
-        for line in reader.lines() {
-            let line = line.unwrap();
-            if line == "" {
-                break;
+        if resource.is_stream() {
+            let receiver = resource.stream_receiver();
+            for line in receiver.iter() {
+                write_stream.write(line.as_bytes()).unwrap();
+                write_stream.flush().unwrap();
             }
         }
+
     });
 }
 
@@ -99,17 +101,17 @@ fn parse_request_header(reader: &mut BufRead) -> (String, String) {
     (request_header[0].to_string(), request_header[1].to_string())
 }
 
-fn create_response(method: String, url: String, resources: ServerResources) -> String {
+fn create_response(method: String, url: String, resources: ServerResources) -> Resource {
     match resources.lock().unwrap().get(&url) {
         Some(resources) =>
             match resources.iter().find(|r| { r.get_method().equal(&method) }) {
                 Some(resource) => {
                     resource.increment_request_count();
-                    resource.to_response_string()
+                    resource.clone()
                 },
-                None => Resource::new().status(Status::MethodNotAllowed).to_response_string()
+                None => Resource::new().status(Status::MethodNotAllowed).clone()
             },
-        None => Resource::new().status(Status::NotFound).to_response_string()
+        None => Resource::new().status(Status::NotFound).clone()
     }
 }
 
@@ -120,6 +122,7 @@ mod tests {
     use std::io::ErrorKind;
     use std::net::TcpStream;
     use std::time::Duration;
+    use std::sync::mpsc;
     use super::*;
 
     fn make_request(port: u16, uri: &str) -> TcpStream {
@@ -283,6 +286,67 @@ mod tests {
         thread::sleep(Duration::from_millis(200));
 
         assert_eq!(resource.request_count(), 2);
+
+        server.close().unwrap();
+    }
+
+    #[test]
+    fn should_expose_stream() {
+        let server = TestServer::new().unwrap();
+        let resource = server.create_resource("/something-else");
+        resource.stream();
+
+        let (tx, rx) = mpsc::channel();
+
+        let port = server.port();
+
+        thread::spawn(move || {
+            let stream = make_request(port, "/something-else");
+            let reader = BufReader::new(stream);
+
+            for line in reader.lines() {
+                let line = line.unwrap();
+                tx.send(line).unwrap();
+            }
+        });
+
+        thread::sleep(Duration::from_millis(200));
+
+        resource.send_line("hello!");
+        resource.send("it's me");
+        resource.send("\n");
+
+        rx.recv().unwrap();
+        rx.recv().unwrap();
+        assert_eq!(rx.recv().unwrap(), "hello!");
+        assert_eq!(rx.recv().unwrap(), "it's me");
+
+        server.close().unwrap();
+    }
+
+    #[test]
+    fn should_close_client_connections() {
+        let server = TestServer::new().unwrap();
+        let resource = server.create_resource("/something-else");
+        let (tx, rx) = mpsc::channel();
+        let port = server.port();
+
+        resource.stream();
+
+        thread::spawn(move || {
+            let stream = make_request(port, "/something-else");
+            let reader = BufReader::new(stream);
+
+            for _line in reader.lines() {}
+
+            tx.send("connection closed").unwrap();
+            thread::sleep(Duration::from_millis(200));
+        });
+
+        thread::sleep(Duration::from_millis(100));
+        resource.close_open_connections();
+
+        assert_eq!(rx.recv().unwrap(), "connection closed");
 
         server.close().unwrap();
     }

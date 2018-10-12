@@ -1,6 +1,7 @@
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::collections::HashMap;
+use std::sync::mpsc;
 
 use ::Method;
 use ::Status;
@@ -12,7 +13,9 @@ pub struct Resource {
     headers: Arc<Mutex<HashMap<String, String>>>,
     body: Arc<Mutex<&'static str>>,
     method: Arc<Mutex<Method>>,
-    request_count: Arc<Mutex<u32>>
+    request_count: Arc<Mutex<u32>>,
+    is_stream: Arc<Mutex<bool>>,
+    stream_listeners: Arc<Mutex<Vec<mpsc::Sender<String>>>>
 }
 
 impl Resource {
@@ -23,7 +26,9 @@ impl Resource {
             headers: Arc::new(Mutex::new(HashMap::new())),
             body: Arc::new(Mutex::new("")),
             method: Arc::new(Mutex::new(Method::GET)),
-            request_count: Arc::new(Mutex::new(0))
+            request_count: Arc::new(Mutex::new(0)),
+            is_stream: Arc::new(Mutex::new(false)),
+            stream_listeners: Arc::new(Mutex::new(vec!()))
         }
     }
 
@@ -82,11 +87,21 @@ impl Resource {
         self
     }
 
-    pub fn get_method(&self) -> Method {
+    pub(crate) fn get_method(&self) -> Method {
         (*self.method.lock().unwrap()).clone()
     }
 
-    pub fn to_response_string(&self) -> String {
+    pub fn stream(&self) -> &Resource {
+        *(self.is_stream.lock().unwrap()) = true;
+
+        self
+    }
+
+    pub(crate) fn is_stream(&self) -> bool {
+        *(self.is_stream.lock().unwrap())
+    }
+
+    pub(crate) fn to_response_string(&self) -> String {
         format!("HTTP/1.1 {}\r\n{}\r\n{}",
             self.get_status_description(),
             self.get_headers(),
@@ -101,6 +116,45 @@ impl Resource {
     pub fn request_count(&self) -> u32 {
         *(self.request_count.lock().unwrap())
     }
+
+    pub fn send(&self, data: &str) {
+        if let Ok(mut listeners) = self.stream_listeners.lock() {
+            let mut invalid_listeners = vec!();
+            for (i, listener) in listeners.iter().enumerate() {
+                if let Err(_) = listener.send(String::from(data)) {
+                    invalid_listeners.push(i);
+                }
+            }
+
+            for i in invalid_listeners.iter() {
+                listeners.remove(*i);
+            }
+        }
+    }
+
+    pub fn send_line(&self, data: &str) {
+        self.send(&format!("{}\n", data))
+    }
+
+    pub fn close_open_connections(&self) {
+        if let Ok(mut listeners) = self.stream_listeners.lock() {
+            listeners.clear();
+        }
+    }
+
+    pub fn open_connections_count(&self) -> usize {
+        let listeners = self.stream_listeners.lock().unwrap();
+        listeners.len()
+    }
+
+    pub fn stream_receiver(&self) -> mpsc::Receiver<String> {
+        let (tx, rx) = mpsc::channel();
+
+        if let Ok(mut listeners) = self.stream_listeners.lock() {
+            listeners.push(tx);
+        }
+        rx
+    }
 }
 
 impl Clone for Resource {
@@ -111,7 +165,9 @@ impl Clone for Resource {
             headers: self.headers.clone(),
             body: self.body.clone(),
             method: self.method.clone(),
-            request_count: self.request_count.clone()
+            request_count: self.request_count.clone(),
+            is_stream: self.is_stream.clone(),
+            stream_listeners: self.stream_listeners.clone()
         }
     }
 }
@@ -119,6 +175,7 @@ impl Clone for Resource {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::thread;
 
     #[test]
     fn should_convert_to_response_string() {
@@ -199,4 +256,79 @@ mod tests {
         assert_eq!(resource.request_count(), dolly.request_count());
         assert_eq!(resource.request_count(), 2);
     }
+
+    #[test]
+    fn should_set_as_stream() {
+        let resource = Resource::new();
+
+        resource.stream().status(Status::Accepted);
+
+        assert!(resource.is_stream());
+    }
+
+
+    #[test]
+    fn should_notify_data() {
+        let resource = Resource::new();
+
+        let receiver = resource.stream_receiver();
+        resource.send("some data");
+        resource.send("some data");
+
+        assert_eq!(receiver.recv().unwrap(), "some data");
+        assert_eq!(receiver.recv().unwrap(), "some data");
+    }
+
+    #[test]
+    fn should_close_connections() {
+        let resource = Resource::new();
+        let res = resource.clone();
+        let receiver = resource.stream_receiver();
+
+        thread::spawn(move || {
+            res.send("some data");
+            res.send("some data");
+            res.close_open_connections();
+        });
+
+        let mut string = String::new();
+
+        for data in receiver.iter() {
+            string = string + &data;
+        }
+
+        assert_eq!(string, "some datasome data");
+    }
+
+    #[test]
+    fn should_return_number_of_connecteds_users() {
+        let resource = Resource::new();
+        let _receiver = resource.stream_receiver();
+        let _receiver_2 = resource.stream_receiver();
+
+        assert_eq!(resource.open_connections_count(), 2);
+    }
+
+
+    #[test]
+    fn should_decrease_count_when_receiver_dropped() {
+        let resource = Resource::new();
+        resource.stream_receiver();
+
+        resource.send("some data");
+
+        assert_eq!(resource.open_connections_count(), 0);
+    }
+
+    #[test]
+    fn should_send_data_with_line_break() {
+        let resource = Resource::new();
+
+        let receiver = resource.stream_receiver();
+        resource.send_line("some data");
+
+        assert_eq!(receiver.recv().unwrap(), "some data\n");
+    }
+
+
 }
