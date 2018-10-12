@@ -56,11 +56,11 @@ impl TestServer {
        self.port
     }
 
-    pub fn close(&self) -> Result<(), Error> {
-        let mut stream = TcpStream::connect(format!("localhost:{}", self.port))?;
-        stream.write(b"CLOSE")?;
-        stream.flush()?;
-        Ok(())
+    pub fn close(&self) {
+        if let Ok(mut stream) = TcpStream::connect(format!("localhost:{}", self.port)) {
+            stream.write(b"CLOSE").unwrap();
+            stream.flush().unwrap();
+        }
     }
 
     pub fn create_resource(&self, uri: &str) -> Resource {
@@ -76,6 +76,12 @@ impl TestServer {
 
         *self.requests_tx.lock().unwrap() = Some(tx);
         return rx;
+    }
+}
+
+impl Drop for TestServer {
+    fn drop(&mut self) {
+        self.close();
     }
 }
 
@@ -203,7 +209,6 @@ mod tests {
         reader.read_line(&mut line).unwrap();
 
         assert_eq!(line, "HTTP/1.1 404 Not Found\r\n");
-        server.close().unwrap();
     }
 
     #[test]
@@ -212,15 +217,12 @@ mod tests {
         let server_2 = TestServer::new().unwrap();
 
         assert_ne!(server.port(), server_2.port());
-
-        server.close().unwrap();
-        server_2.close().unwrap();
     }
 
     #[test]
     fn should_close_connection() {
         let server = TestServer::new().unwrap();
-        server.close().unwrap();
+        server.close();
 
         thread::sleep(Duration::from_millis(200));
 
@@ -245,7 +247,6 @@ mod tests {
         reader.read_line(&mut line).unwrap();
 
         assert_eq!(line, "HTTP/1.1 200 Ok\r\n");
-        server.close().unwrap();
     }
 
     #[test]
@@ -262,7 +263,6 @@ mod tests {
         reader.read_line(&mut line).unwrap();
 
         assert_eq!(line, "HTTP/1.1 200 Ok\r\n");
-        server.close().unwrap();
     }
 
     #[test]
@@ -279,7 +279,6 @@ mod tests {
         reader.read_to_string(&mut line).unwrap();
 
         assert_eq!(line, "HTTP/1.1 200 Ok\r\n\r\n<some body>");
-        server.close().unwrap();
     }
 
     #[test]
@@ -296,7 +295,6 @@ mod tests {
         reader.read_to_string(&mut line).unwrap();
 
         assert_eq!(line, "HTTP/1.1 200 Ok\r\n\r\n<some body>");
-        server.close().unwrap();
     }
 
     #[test]
@@ -313,7 +311,6 @@ mod tests {
         reader.read_to_string(&mut line).unwrap();
 
         assert_eq!(line, "HTTP/1.1 405 Method Not Allowed\r\n\r\n");
-        server.close().unwrap();
     }
 
     #[test]
@@ -332,7 +329,6 @@ mod tests {
 
         assert_eq!(resource.request_count(), 2);
 
-        server.close().unwrap();
     }
 
     #[test]
@@ -365,8 +361,6 @@ mod tests {
         rx.recv().unwrap();
         assert_eq!(rx.recv().unwrap(), "hello!");
         assert_eq!(rx.recv().unwrap(), "it's me");
-
-        server.close().unwrap();
     }
 
     #[test]
@@ -392,8 +386,6 @@ mod tests {
         resource.close_open_connections();
 
         assert_eq!(rx.recv().unwrap(), "connection closed");
-
-        server.close().unwrap();
     }
 
     #[test]
@@ -408,7 +400,6 @@ mod tests {
                 thread::sleep(Duration::from_millis(400));
                 break;
             }
-            server.close().unwrap();
         });
 
         thread::sleep(Duration::from_millis(100));
@@ -451,8 +442,23 @@ mod tests {
         assert!(rx.try_recv().is_err());
         thread::sleep(Duration::from_millis(200));
         assert_eq!(rx.try_recv().unwrap(), "HTTP/1.1 200 Ok");
-
-        server.close().unwrap();
     }
 
+    #[test]
+    fn server_should_close_connection_when_dropped() {
+        let port;
+        {
+            let server = TestServer::new().unwrap();
+            port = server.port();
+        }
+
+        let host = format!("localhost:{}", port);
+        let stream = TcpStream::connect(host);
+
+        if let Err(e) = stream {
+            assert_eq!(e.kind(), ErrorKind::ConnectionRefused);
+        } else {
+            panic!("connection should be closed");
+        }
+    }
 }
