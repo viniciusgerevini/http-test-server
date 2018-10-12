@@ -132,7 +132,7 @@ impl Resource {
         *(self.request_count.lock().unwrap())
     }
 
-    pub fn send(&self, data: &str) {
+    pub fn send(&self, data: &str) -> &Resource {
         if let Ok(mut listeners) = self.stream_listeners.lock() {
             let mut invalid_listeners = vec!();
             for (i, listener) in listeners.iter().enumerate() {
@@ -145,9 +145,11 @@ impl Resource {
                 listeners.remove(*i);
             }
         }
+
+        self
     }
 
-    pub fn send_line(&self, data: &str) {
+    pub fn send_line(&self, data: &str) -> &Resource {
         self.send(&format!("{}\n", data))
     }
 
@@ -288,8 +290,7 @@ mod tests {
         let resource = Resource::new();
 
         let receiver = resource.stream_receiver();
-        resource.send("some data");
-        resource.send("some data");
+        resource.send("some data").send("some data");
 
         assert_eq!(receiver.recv().unwrap(), "some data");
         assert_eq!(receiver.recv().unwrap(), "some data");
@@ -341,9 +342,10 @@ mod tests {
         let resource = Resource::new();
 
         let receiver = resource.stream_receiver();
-        resource.send_line("some data");
+        resource.send_line("some data").send_line("again");
 
         assert_eq!(receiver.recv().unwrap(), "some data\n");
+        assert_eq!(receiver.recv().unwrap(), "again\n");
     }
 
     #[test]
