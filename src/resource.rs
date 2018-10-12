@@ -19,7 +19,7 @@ pub struct Resource {
 }
 
 impl Resource {
-    pub fn new() -> Resource {
+    pub(crate) fn new() -> Resource {
         Resource {
             status_code: Arc::new(Mutex::new(Status::OK)),
             custom_status_code: Arc::new(Mutex::new(None)),
