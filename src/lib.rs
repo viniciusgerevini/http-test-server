@@ -11,9 +11,9 @@ use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::mpsc;
 use std::collections::HashMap;
-use resource::Resource;
 use http::Method;
 use http::Status;
+pub use resource::Resource;
 
 type ServerResources = Arc<Mutex<HashMap<String, Vec<Resource>>>>;
 type RequestsTX = Arc<Mutex<Option<mpsc::Sender<Request>>>>;
