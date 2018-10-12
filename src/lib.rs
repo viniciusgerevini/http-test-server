@@ -89,6 +89,10 @@ fn handle_connection(stream: &TcpStream, resources: ServerResources, requests_tx
         let (method, url) = parse_request_header(&mut reader);
         let resource = create_response(method.clone(), url.clone(), resources);
 
+        if let Some(delay) = resource.get_delay() {
+            thread::sleep(delay);
+        }
+
         write_stream.write(resource.to_response_string().as_bytes()).unwrap();
         write_stream.flush().unwrap();
 
@@ -421,4 +425,34 @@ mod tests {
 
         assert_eq!(rx.recv().unwrap(), expected_request);
     }
+
+    #[test]
+    fn should_delay_response() {
+        let server = TestServer::new().unwrap();
+        let resource = server.create_resource("/something-else");
+        resource.delay(Duration::from_millis(300));
+
+        let (tx, rx) = mpsc::channel();
+
+        let port = server.port();
+
+        thread::spawn(move || {
+            let stream = make_request(port, "/something-else");
+            let reader = BufReader::new(stream);
+
+            for line in reader.lines() {
+                let line = line.unwrap();
+                tx.send(line).unwrap();
+            }
+        });
+
+        thread::sleep(Duration::from_millis(200));
+
+        assert!(rx.try_recv().is_err());
+        thread::sleep(Duration::from_millis(200));
+        assert_eq!(rx.try_recv().unwrap(), "HTTP/1.1 200 Ok");
+
+        server.close().unwrap();
+    }
+
 }

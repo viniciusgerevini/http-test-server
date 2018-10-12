@@ -2,6 +2,7 @@ use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::mpsc;
 use std::collections::HashMap;
+use std::time::Duration;
 
 use ::Method;
 use ::Status;
@@ -13,6 +14,7 @@ pub struct Resource {
     headers: Arc<Mutex<HashMap<String, String>>>,
     body: Arc<Mutex<&'static str>>,
     method: Arc<Mutex<Method>>,
+    delay: Arc<Mutex<Option<Duration>>>,
     request_count: Arc<Mutex<u32>>,
     is_stream: Arc<Mutex<bool>>,
     stream_listeners: Arc<Mutex<Vec<mpsc::Sender<String>>>>
@@ -26,6 +28,7 @@ impl Resource {
             headers: Arc::new(Mutex::new(HashMap::new())),
             body: Arc::new(Mutex::new("")),
             method: Arc::new(Mutex::new(Method::GET)),
+            delay: Arc::new(Mutex::new(None)),
             request_count: Arc::new(Mutex::new(0)),
             is_stream: Arc::new(Mutex::new(false)),
             stream_listeners: Arc::new(Mutex::new(vec!()))
@@ -89,6 +92,18 @@ impl Resource {
 
     pub(crate) fn get_method(&self) -> Method {
         (*self.method.lock().unwrap()).clone()
+    }
+
+    pub fn delay(&self, delay: Duration) -> &Resource {
+        if let Ok(mut d) = self.delay.lock() {
+            *d = Some(delay);
+        }
+
+        self
+    }
+
+    pub(crate) fn get_delay(&self) -> Option<Duration> {
+        (*self.delay.lock().unwrap()).clone()
     }
 
     pub fn stream(&self) -> &Resource {
@@ -165,6 +180,7 @@ impl Clone for Resource {
             headers: self.headers.clone(),
             body: self.body.clone(),
             method: self.method.clone(),
+            delay: self.delay.clone(),
             request_count: self.request_count.clone(),
             is_stream: self.is_stream.clone(),
             stream_listeners: self.stream_listeners.clone()
@@ -328,5 +344,13 @@ mod tests {
         resource.send_line("some data");
 
         assert_eq!(receiver.recv().unwrap(), "some data\n");
+    }
+
+    #[test]
+    fn should_set_delay() {
+        let resource = Resource::new();
+        resource.delay(Duration::from_millis(200));
+
+        assert_eq!(resource.get_delay(), Some(Duration::from_millis(200)));
     }
 }
