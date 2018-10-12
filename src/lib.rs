@@ -9,16 +9,19 @@ use std::io::Error;
 use std::io::BufReader;
 use std::sync::Arc;
 use std::sync::Mutex;
+use std::sync::mpsc;
 use std::collections::HashMap;
 use resource::Resource;
 use http::Method;
 use http::Status;
 
 type ServerResources = Arc<Mutex<HashMap<String, Vec<Resource>>>>;
+type RequestsTX = Arc<Mutex<Option<mpsc::Sender<Request>>>>;
 
 pub struct TestServer {
     port: u16,
-    resources: ServerResources
+    resources: ServerResources,
+    requests_tx: RequestsTX
 }
 
 impl TestServer {
@@ -26,8 +29,10 @@ impl TestServer {
         let listener = TcpListener::bind("localhost:0").unwrap();
         let port = listener.local_addr()?.port();
         let resources: ServerResources = Arc::new(Mutex::new(HashMap::new()));
+        let requests_tx = Arc::new(Mutex::new(None));
 
         let res = Arc::clone(&resources);
+        let tx = Arc::clone(&requests_tx);
 
         thread::spawn(move || {
             for stream in listener.incoming() {
@@ -40,11 +45,11 @@ impl TestServer {
                     break;
                 }
 
-                handle_connection(&stream, res.clone());
+                handle_connection(&stream, res.clone(), tx.clone());
             }
         });
 
-        Ok(TestServer{ port, resources })
+        Ok(TestServer{ port, resources, requests_tx })
     }
 
     pub fn port(&self) -> u16 {
@@ -65,9 +70,16 @@ impl TestServer {
 
         resource
     }
+
+    pub fn requests(&self) -> mpsc::Receiver<Request> {
+        let (tx, rx) = mpsc::channel();
+
+        *self.requests_tx.lock().unwrap() = Some(tx);
+        return rx;
+    }
 }
 
-fn handle_connection(stream: &TcpStream, resources: ServerResources) {
+fn handle_connection(stream: &TcpStream, resources: ServerResources, requests_tx: RequestsTX) {
     let stream = stream.try_clone().unwrap();
 
     thread::spawn(move || {
@@ -75,10 +87,27 @@ fn handle_connection(stream: &TcpStream, resources: ServerResources) {
         let mut reader = BufReader::new(stream);
 
         let (method, url) = parse_request_header(&mut reader);
-        let resource = create_response(method, url, resources);
+        let resource = create_response(method.clone(), url.clone(), resources);
 
         write_stream.write(resource.to_response_string().as_bytes()).unwrap();
         write_stream.flush().unwrap();
+
+        if let Some(ref tx) = *requests_tx.lock().unwrap() {
+            let mut headers = HashMap::new();
+
+            for line in reader.lines() {
+                let line = line.unwrap();
+
+                if line == "" {
+                    break
+                }
+
+                let (name, value) = parse_header(line);
+                headers.insert(name, value);
+            }
+
+            tx.send(Request { url, method, headers }).unwrap();
+        }
 
         if resource.is_stream() {
             let receiver = resource.stream_receiver();
@@ -89,6 +118,11 @@ fn handle_connection(stream: &TcpStream, resources: ServerResources) {
         }
 
     });
+}
+
+fn parse_header(message: String) -> (String, String) {
+    let parts: Vec<&str> = message.splitn(2, ":").collect();
+    (String::from(parts[0]), String::from(parts[1].trim()))
 }
 
 fn parse_request_header(reader: &mut BufRead) -> (String, String) {
@@ -115,6 +149,13 @@ fn create_response(method: String, url: String, resources: ServerResources) -> R
     }
 }
 
+#[derive(Debug, PartialEq)]
+pub struct Request {
+    pub url: String,
+    pub method: String,
+    pub headers: HashMap<String, String>
+}
+
 #[cfg(test)]
 mod tests {
     use std::io::prelude::*;
@@ -137,7 +178,7 @@ mod tests {
         let host = format!("localhost:{}", port);
         let mut stream = TcpStream::connect(host).unwrap();
         let request = format!(
-            "{} {} HTTP/1.1\r\n\r\n",
+            "{} {} HTTP/1.1\r\nContent-Type: text\r\n\r\n",
             method,
             uri
         );
@@ -349,5 +390,35 @@ mod tests {
         assert_eq!(rx.recv().unwrap(), "connection closed");
 
         server.close().unwrap();
+    }
+
+    #[test]
+    fn should_return_requests_metadata() {
+        let server = TestServer::new().unwrap();
+        let (tx, rx) = mpsc::channel();
+        let port = server.port();
+
+        thread::spawn(move || {
+            for req in server.requests().iter() {
+                tx.send(req).unwrap();
+                thread::sleep(Duration::from_millis(400));
+                break;
+            }
+            server.close().unwrap();
+        });
+
+        thread::sleep(Duration::from_millis(100));
+        let _req = make_request(port, "/something-else");
+
+        let mut request_headers = HashMap::new();
+        request_headers.insert(String::from("Content-Type"), String::from("text"));
+
+        let expected_request = Request {
+            url: String::from("/something-else"),
+            method: String::from("GET"),
+            headers: request_headers
+        };
+
+        assert_eq!(rx.recv().unwrap(), expected_request);
     }
 }

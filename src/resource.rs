@@ -1,7 +1,7 @@
 use std::sync::Arc;
 use std::sync::Mutex;
-use std::collections::HashMap;
 use std::sync::mpsc;
+use std::collections::HashMap;
 
 use ::Method;
 use ::Status;
@@ -329,6 +329,4 @@ mod tests {
 
         assert_eq!(receiver.recv().unwrap(), "some data\n");
     }
-
-
 }
