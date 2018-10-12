@@ -26,7 +26,11 @@ pub struct TestServer {
 
 impl TestServer {
     pub fn new() -> Result<TestServer, Error> {
-        let listener = TcpListener::bind("localhost:0").unwrap();
+        TestServer::new_with_port(0)
+    }
+
+    pub fn new_with_port(port: u16) -> Result<TestServer, Error> {
+        let listener = TcpListener::bind(format!("localhost:{}", port)).unwrap();
         let port = listener.local_addr()?.port();
         let resources: ServerResources = Arc::new(Mutex::new(HashMap::new()));
         let requests_tx = Arc::new(Mutex::new(None));
