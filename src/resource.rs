@@ -21,7 +21,7 @@ pub struct Resource {
 impl Resource {
     pub fn new() -> Resource {
         Resource {
-            status_code: Arc::new(Mutex::new(Status::NoContent)),
+            status_code: Arc::new(Mutex::new(Status::OK)),
             custom_status_code: Arc::new(Mutex::new(None)),
             headers: Arc::new(Mutex::new(HashMap::new())),
             body: Arc::new(Mutex::new("")),
@@ -216,7 +216,7 @@ mod tests {
             .header("Content-Type", "application/json")
             .body("hello!");
 
-        assert_eq!(resource_not_found.to_response_string(), "HTTP/1.1 204 No Content\r\nContent-Type: application/json\r\n\r\nhello!");
+        assert_eq!(resource_not_found.to_response_string(), "HTTP/1.1 200 Ok\r\nContent-Type: application/json\r\n\r\nhello!");
     }
 
     #[test]

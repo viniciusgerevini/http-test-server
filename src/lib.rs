@@ -199,7 +199,7 @@ mod tests {
         let mut line = String::new();
         reader.read_line(&mut line).unwrap();
 
-        assert_eq!(line, "HTTP/1.1 204 No Content\r\n");
+        assert_eq!(line, "HTTP/1.1 200 Ok\r\n");
         server.close().unwrap();
     }
 
