@@ -635,6 +635,7 @@ mod tests {
         {
             let server = TestServer::new().unwrap();
             port = server.port();
+            thread::sleep(Duration::from_millis(200));
         }
 
         let host = format!("localhost:{}", port);
