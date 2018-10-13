@@ -1,6 +1,7 @@
 # HTTP Test Server
 
 [![Documentation](https://docs.rs/http-test-server/badge.svg)](https://docs.rs/http-test-server/) [![Build Status](https://travis-ci.org/viniciusgerevini/http-test-server.svg?branch=master)](https://travis-ci.org/viniciusgerevini/http-test-server)
+
 Programatically create end-points that listen for connections and return pre-defined responses.
 
 - Allows multiple endpoints and simultaneous client connections
@@ -52,9 +53,6 @@ resource
 
 Expose a persistent stream:
 ```rust
-# extern crate http_test_server;
-# use http_test_server::{TestServer, Resource};
-# use http_test_server::http::{Status, Method};
 let server = TestServer::new().unwrap();
 let resource = server.create_resource("/sub");
 
@@ -85,9 +83,6 @@ resource
 
 Redirects:
 ```rust
-# extern crate http_test_server;
-# use http_test_server::{TestServer, Resource};
-# use http_test_server::http::{Status, Method};
 let server = TestServer::new().unwrap();
 let resource_redirect = server.create_resource("/original");
 let resource_target = server.create_resource("/new");
