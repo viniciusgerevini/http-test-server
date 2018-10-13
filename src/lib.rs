@@ -1,3 +1,114 @@
+//! # HTTP Test Server
+//!
+//! Programatically create end-points that listen for connections and return pre-defined
+//! responses.
+//!
+//! - Allows multiple endpoints and simultaneous client connections
+//! - Resource builder for creating endpoints
+//! - Streaming support
+//! - Helper functions to retrieve data such as request count, number of connected clients and
+//! requests metadata
+//! - Automatically allocates free port and close server after use
+//!
+//! *NOTE*: This is not intended to work as a full featured server. For this reason many validations
+//! and behaviours are not implemented. e.g: A request with `Accept` header with not supported
+//! `Content-Type` won't trigger a `406 Not Acceptable`.
+//!
+//! As this crate was devised to be used in tests, smart behaviours could be confusing and misleading.
+//!
+//! Having said that, there are some default behaviours implemented:
+//!
+//! - Server returns `404 Not Found` when requested resource was not configured.
+//! - Server returns `405 Method Not Allowed` when trying to reach resource with different method from those configured.
+//! - When a resource is created it responds to `GET` with `200 Ok` by default.
+//!
+//! # Example:
+//!
+//! Accept POST requests:
+//! ```
+//! extern crate http_test_server;
+//!
+//! use http_test_server::{TestServer, Resource};
+//! use http_test_server::http::{Status, Method};
+//!
+//! let server = TestServer::new().unwrap();
+//! let resource = server.create_resource("/some-endpoint/new");
+//!
+//! resource
+//!     .status(Status::Created)
+//!     .method(Method::POST)
+//!     .header("Content-Type", "application/json")
+//!     .header("Cache-Control", "no-cache")
+//!     .body("{ \"message\": \"this is a message\" }");
+//!
+//! // request: POST /some-endpoint/new
+//!
+//! // HTTP/1.1 201 Created\r\n
+//! // Content-Type: application/json\r\n
+//! // Cache-Control: no-cache\r\n
+//! // \r\n
+//! // { "message": "this is a message" }
+//!
+//!
+//! ```
+//!
+//! Expose a persistent stream:
+//! ```
+//! # extern crate http_test_server;
+//! # use http_test_server::{TestServer, Resource};
+//! # use http_test_server::http::{Status, Method};
+//! let server = TestServer::new().unwrap();
+//! let resource = server.create_resource("/sub");
+//!
+//! resource
+//!     .header("Content-Type", "text/event-stream")
+//!     .header("Cache-Control", "no-cache")
+//!     .stream()
+//!     .body(": initial data");
+//!
+//! // ...
+//!
+//! resource
+//!     .send("some data")
+//!     .send(" some extra data\n")
+//!     .send_line("some extra data with line break")
+//!     .close_open_connections();
+//!
+//! // request: GET /sub
+//!
+//! // HTTP/1.1 200 Ok\r\n
+//! // Content-Type: text/event-stream\r\n
+//! // Cache-Control: no-cache\r\n
+//! // \r\n
+//! // : initial data
+//! // some data some extra data\n
+//! // some extra data with line break\n
+//!
+//!
+//! ```
+//! Redirects:
+//! ```
+//! # extern crate http_test_server;
+//! # use http_test_server::{TestServer, Resource};
+//! # use http_test_server::http::{Status, Method};
+//! let server = TestServer::new().unwrap();
+//! let resource_redirect = server.create_resource("/original");
+//! let resource_target = server.create_resource("/new");
+//!
+//! resource_redirect
+//!     .status(Status::SeeOther)
+//!     .header("Location", "/new" );
+//!
+//! resource_target.body("Hi!");
+//!
+//! // request: GET /original
+//!
+//! // HTTP/1.1 303 See Other\r\n
+//! // Location: /new\r\n
+//! // \r\n
+//!
+//!
+//! ```
 pub mod resource;
 pub mod http;
 
@@ -18,6 +129,7 @@ pub use resource::Resource;
 type ServerResources = Arc<Mutex<HashMap<String, Vec<Resource>>>>;
 type RequestsTX = Arc<Mutex<Option<mpsc::Sender<Request>>>>;
 
+/// Controls the listener life cycle and creates new resources
 pub struct TestServer {
     port: u16,
     resources: ServerResources,
@@ -25,10 +137,28 @@ pub struct TestServer {
 }
 
 impl TestServer {
+    /// Creates a listener that is bounded to a free port in localhost.
+    /// Listener is closed when the value is dropped.
+    ///
+    /// Any request for non-defined resources will return 404.
+    ///
+    /// ```
+    ///# extern crate http_test_server;
+    ///# use http_test_server::{TestServer, Resource};
+    /// let server = TestServer::new().unwrap();
+    ///
+    /// ```
     pub fn new() -> Result<TestServer, Error> {
         TestServer::new_with_port(0)
     }
 
+    /// Same behaviour as `new`, but tries to bound to given port instead of looking for a free one.
+    /// ```
+    ///# extern crate http_test_server;
+    ///# use http_test_server::{TestServer, Resource};
+    /// let server = TestServer::new_with_port(8080).unwrap();
+    ///
+    /// ```
     pub fn new_with_port(port: u16) -> Result<TestServer, Error> {
         let listener = TcpListener::bind(format!("localhost:{}", port)).unwrap();
         let port = listener.local_addr()?.port();
@@ -56,10 +186,30 @@ impl TestServer {
         Ok(TestServer{ port, resources, requests_tx })
     }
 
+    /// Returns associated port number.
+    /// ```
+    ///# extern crate http_test_server;
+    ///# use http_test_server::{TestServer, Resource};
+    /// let server = TestServer::new().unwrap();
+    ///
+    /// assert!(server.port() > 0);
+    /// ```
     pub fn port(&self) -> u16 {
        self.port
     }
 
+    /// Closes listener. Server stops receiving connections. Do nothing if listener is already closed.
+    ///
+    /// In most the cases this method is not required as the listener is automatically closed when
+    /// the value is dropped.
+    ///
+    /// ```
+    ///# extern crate http_test_server;
+    ///# use http_test_server::{TestServer, Resource};
+    /// let server = TestServer::new().unwrap();
+    ///
+    /// server.close();
+    /// ```
     pub fn close(&self) {
         if let Ok(mut stream) = TcpStream::connect(format!("localhost:{}", self.port)) {
             stream.write(b"CLOSE").unwrap();
@@ -67,6 +217,17 @@ impl TestServer {
         }
     }
 
+    /// Creates a new resource. By default resources answer "200 Ok".
+    ///
+    /// Check [`Resource`] for all possible configurations.
+    ///
+    /// ```
+    ///# extern crate http_test_server;
+    ///# use http_test_server::{TestServer, Resource};
+    /// let server = TestServer::new().unwrap();
+    /// let resource = server.create_resource("/user/settings");
+    /// ```
+    /// [`Resource`]: struct.Resource.html
     pub fn create_resource(&self, uri: &str) -> Resource {
         let mut resources = self.resources.lock().unwrap();
         let resource = Resource::new();
@@ -75,6 +236,20 @@ impl TestServer {
         resource
     }
 
+    /// Retrieves information on new requests.
+    ///
+    /// ```no_run
+    ///# extern crate http_test_server;
+    ///# use http_test_server::{TestServer, Resource};
+    ///# use std::collections::HashMap;
+    /// let server = TestServer::new().unwrap();
+    ///
+    /// for request in server.requests().iter() {
+    ///     assert_eq!(request.url, "/endpoint");
+    ///     assert_eq!(request.method, "GET");
+    ///     assert_eq!(request.headers.get("Content-Type").unwrap(), "text");
+    /// }
+    /// ```
     pub fn requests(&self) -> mpsc::Receiver<Request> {
         let (tx, rx) = mpsc::channel();
 
@@ -163,10 +338,16 @@ fn create_response(method: String, url: String, resources: ServerResources) -> R
     }
 }
 
+/// Request information
+///
+/// this contains basic information about a request received.
 #[derive(Debug, PartialEq)]
 pub struct Request {
+    /// Request URL
     pub url: String,
+    /// HTTP method
     pub method: String,
+    /// Request headers
     pub headers: HashMap<String, String>
 }
 
