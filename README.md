@@ -100,3 +100,4 @@ resource_target.body("Hi!");
 // \r\n
 ```
 
+Check `/tests/integration_test.rs` for more usage examples.
