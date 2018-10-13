@@ -1,3 +1,6 @@
+//! HTTP constants
+
+/// HTTP methods
 #[derive(Debug, Clone, PartialEq)]
 pub enum Method {
     GET,
@@ -18,11 +21,27 @@ impl Method {
         }
     }
 
+    /// compares with string equivalent
+    /// ```
+    /// # use http_test_server::http::Method;
+    /// let method = Method::POST;
+    ///
+    /// assert!(method.equal("POST"));
+    /// ```
     pub fn equal(&self, value: &str) -> bool {
         self.value() == value
     }
 }
 
+/// HTTP status
+///
+/// Can be converted to its numeral equivalent.
+/// ```
+/// # use http_test_server::http::Status;
+/// let status_code = Status::NotFound as u16;
+///
+/// assert_eq!(status_code, 404);
+/// ```
 #[derive(Debug)]
 pub enum Status {
     Continue = 100,
@@ -81,6 +100,14 @@ pub enum Status {
 }
 
 impl Status {
+    /// Returns status' full description
+    /// ```
+    /// use http_test_server::http::Status;
+    ///
+    /// let description = Status::MultipleChoices.description();
+    ///
+    /// assert_eq!(description, "300 Multiple Choices");
+    /// ```
     pub fn description(&self) -> &'static str {
         match self {
             Status::Continue => "100 Continue",
@@ -91,7 +118,7 @@ impl Status {
             Status::Accepted => "202 Accepted",
             Status::NonAuthoritativeInformation => "203 Non Authoritative Information",
             Status::NoContent => "204 No Content",
-            Status::ResetContent  => "205 Reset Content",
+            Status::ResetContent => "205 Reset Content",
             Status::PartialContent => "206 Partial Content",
             Status::MultiStatus=> "207 Multi Status",
             Status::MultipleChoices=> "300 Multiple Choices",
