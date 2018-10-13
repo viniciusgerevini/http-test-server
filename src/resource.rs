@@ -1,3 +1,4 @@
+//! Server resource builders
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::mpsc;
@@ -7,6 +8,25 @@ use std::time::Duration;
 use ::Method;
 use ::Status;
 
+/// Responsible for configuring a resource and interacting with it.
+///
+/// Must be created through `TestServer`.
+///
+/// By default a resource's method is `GET` and response is `200 Ok` with empty body.
+///
+/// ```
+/// use http_test_server::TestServer;
+/// use http_test_server::http::{Method, Status};
+///
+/// let server = TestServer::new().unwrap();
+/// let resource = server.create_resource("/i-am-a-resource");
+///
+/// resource
+///     .status(Status::PartialContent)
+///     .method(Method::POST)
+///     .body("All good!");
+///
+/// ```
 #[derive(Debug)]
 pub struct Resource {
     status_code: Arc<Mutex<Status>>,
@@ -35,6 +55,18 @@ impl Resource {
         }
     }
 
+    /// Defines response's HTTP Status .
+    ///
+    /// Refer to [`custom_status`] for Statuses not covered by [`Status`].
+    /// ```
+    /// # use http_test_server::TestServer;
+    /// # use http_test_server::http::{Method, Status};
+    /// # let server = TestServer::new().unwrap();
+    /// # let resource = server.create_resource("/i-am-a-resource");
+    /// resource.status(Status::PartialContent);
+    /// ```
+    /// [`custom_status`]: struct.Resource.html#method.custom_status
+    /// [`Status`]: ../http/enum.Status.html
     pub fn status(&self, status_code: Status) -> &Resource {
         if let Ok(mut status) = self.status_code.lock() {
             *status = status_code;
@@ -54,6 +86,17 @@ impl Resource {
         }
     }
 
+    /// Defines a custom HTTP Status to response.
+    ///
+    /// Use it to return HTTP statuses that are not covered by [`Status`].
+    ///
+    /// ```
+    /// # use http_test_server::TestServer;
+    /// # let server = TestServer::new().unwrap();
+    /// # let resource = server.create_resource("/i-am-a-resource");
+    /// resource.custom_status(333, "Only Half Beast");
+    /// ```
+    /// [`Status`]: ../http/enum.Status.html
     pub fn custom_status(&self, status_code: u16, description: &str) -> &Resource {
         if let Ok(mut status) = self.custom_status_code.lock() {
             *status = Some(format!("{} {}", status_code, description));
@@ -61,6 +104,19 @@ impl Resource {
         self
     }
 
+    /// Defines response headers.
+    ///
+    /// Call it multiple times to add multiple headers.
+    /// If a header is defined twice only the late value is returned.
+    ///
+    /// ```
+    /// # use http_test_server::TestServer;
+    /// # let server = TestServer::new().unwrap();
+    /// # let resource = server.create_resource("/i-am-a-resource");
+    /// resource
+    ///     .header("Content-Type", "application/json")
+    ///     .header("Connection", "Keep-Alive");
+    /// ```
     pub fn header(&self, header_name: &str, header_value: &str) -> &Resource {
         let mut headers = self.headers.lock().unwrap();
         headers.insert(String::from(header_name), String::from(header_value));
@@ -74,6 +130,18 @@ impl Resource {
         })
     }
 
+    /// Defines response's body.
+    ///
+    /// If the response is a stream this value will be sent straight after connection.
+    ///
+    /// Calling multiple times will overwrite the value.
+    ///
+    /// ```
+    /// # use http_test_server::TestServer;
+    /// # let server = TestServer::new().unwrap();
+    /// # let resource = server.create_resource("/i-am-a-resource");
+    /// resource.body("this is important!");
+    /// ```
     pub fn body(&self, content: &'static str) -> &Resource {
         if let Ok(mut body) = self.body.lock() {
             *body = content;
@@ -82,6 +150,20 @@ impl Resource {
         self
     }
 
+    /// Defines HTTP method.
+    ///
+    /// A resource will only respond to one method, however multiple resources with same URL and
+    /// different methods can be created.
+    /// ```
+    /// # use http_test_server::TestServer;
+    /// use http_test_server::http::Method;
+    /// # let server = TestServer::new().unwrap();
+    /// let resource_put = server.create_resource("/i-am-a-resource");
+    /// let resource_post = server.create_resource("/i-am-a-resource");
+    ///
+    /// resource_put.method(Method::PUT);
+    /// resource_post.method(Method::POST);
+    /// ```
     pub fn method(&self, method: Method) -> &Resource {
         if let Ok(mut m) = self.method.lock() {
             *m = method;
@@ -94,6 +176,15 @@ impl Resource {
         (*self.method.lock().unwrap()).clone()
     }
 
+    /// Defines delay to response after client connected
+    /// ```
+    /// # use http_test_server::TestServer;
+    /// use std::time::Duration;
+    /// # let server = TestServer::new().unwrap();
+    /// # let resource = server.create_resource("/i-am-a-resource");
+    ///
+    /// resource.delay(Duration::from_millis(500));
+    /// ```
     pub fn delay(&self, delay: Duration) -> &Resource {
         if let Ok(mut d) = self.delay.lock() {
             *d = Some(delay);
@@ -106,6 +197,26 @@ impl Resource {
         (*self.delay.lock().unwrap()).clone()
     }
 
+    /// Set response as stream, this means clients won't be disconnected after body is sent and
+    /// updates can be sent and received.
+    ///
+    /// See also: [`send`], [`send_line`], [`stream_receiver`].
+    /// ```
+    /// # use http_test_server::TestServer;
+    /// # let server = TestServer::new().unwrap();
+    /// let resource = server.create_resource("/stream");
+    ///
+    /// resource.stream();
+    ///
+    /// resource
+    ///     .send_line("some")
+    ///     .send_line("data")
+    ///     .close_open_connections();
+    /// ```
+    /// [`send`]: struct.Resource.html#method.send
+    /// [`send_line`]: struct.Resource.html#method.send_line
+    /// [`stream_receiver`]: struct.Resource.html#method.stream_receiver
+    /// [`close_open_connections`]: struct.Resource.html#method.close_open_connections
     pub fn stream(&self) -> &Resource {
         *(self.is_stream.lock().unwrap()) = true;
 
@@ -128,10 +239,22 @@ impl Resource {
         *(self.request_count.lock().unwrap()) += 1;
     }
 
-    pub fn request_count(&self) -> u32 {
-        *(self.request_count.lock().unwrap())
-    }
-
+    /// Send data to all connected clients.
+    ///
+    /// See also: [`send_line`], [`stream`].
+    /// ```
+    /// # use http_test_server::TestServer;
+    /// # let server = TestServer::new().unwrap();
+    /// let resource = server.create_resource("/stream");
+    ///
+    /// resource.stream();
+    ///
+    /// resource
+    ///     .send("some")
+    ///     .send(" data");
+    /// ```
+    /// [`send_line`]: struct.Resource.html#method.send_line
+    /// [`stream`]: struct.Resource.html#method.stream
     pub fn send(&self, data: &str) -> &Resource {
         if let Ok(mut listeners) = self.stream_listeners.lock() {
             let mut invalid_listeners = vec!();
@@ -149,9 +272,40 @@ impl Resource {
         self
     }
 
+    /// Send data to all connected clients.
+    /// Same as [`send`], but appends `\n` to data.
+    ///
+    /// See also: [`stream`]
+    /// ```
+    /// # use http_test_server::TestServer;
+    /// # let server = TestServer::new().unwrap();
+    /// let resource = server.create_resource("/stream");
+    ///
+    /// resource.stream();
+    ///
+    /// resource
+    ///     .send_line("one line")
+    ///     .send_line("another line");
+    /// ```
+    /// [`send`]: struct.Resource.html#method.send
+    /// [`stream`]: struct.Resource.html#method.stream
     pub fn send_line(&self, data: &str) -> &Resource {
         self.send(&format!("{}\n", data))
     }
+
+    /// Close all connections with clients.
+    ///
+    /// See also: [`stream`]
+    /// ```
+    /// # use http_test_server::TestServer;
+    /// # let server = TestServer::new().unwrap();
+    /// let resource = server.create_resource("/stream");
+    ///
+    /// resource.stream();
+    ///
+    /// resource.close_open_connections();
+    /// ```
+    /// [`stream`]: struct.Resource.html#method.stream
 
     pub fn close_open_connections(&self) {
         if let Ok(mut listeners) = self.stream_listeners.lock() {
@@ -159,11 +313,42 @@ impl Resource {
         }
     }
 
+    /// Number of clients connected to stream.
+    ///
+    /// See also: [`stream`]
+    /// ```
+    /// # use http_test_server::TestServer;
+    /// # let server = TestServer::new().unwrap();
+    /// let resource = server.create_resource("/stream");
+    ///
+    /// resource
+    ///     .stream()
+    ///     .close_open_connections();
+    ///
+    /// assert_eq!(resource.open_connections_count(), 0);
+    /// ```
+    /// [`stream`]: struct.Resource.html#method.stream
     pub fn open_connections_count(&self) -> usize {
         let listeners = self.stream_listeners.lock().unwrap();
         listeners.len()
     }
 
+    /// Receives data sent from clients through stream.
+    ///
+    /// See also: [`stream`]
+    /// ```no_run
+    /// # use http_test_server::TestServer;
+    /// # let server = TestServer::new().unwrap();
+    /// let resource = server.create_resource("/stream");
+    /// let receiver = resource.stream().stream_receiver();
+    ///
+    /// let new_message = receiver.recv().unwrap();
+    ///
+    /// for message in receiver.iter() {
+    ///     println!("Client message: {}", message);
+    /// }
+    /// ```
+    /// [`stream`]: struct.Resource.html#method.stream
     pub fn stream_receiver(&self) -> mpsc::Receiver<String> {
         let (tx, rx) = mpsc::channel();
 
@@ -172,9 +357,23 @@ impl Resource {
         }
         rx
     }
+
+    /// Number of requests received
+    /// ```
+    /// # use http_test_server::TestServer;
+    /// # let server = TestServer::new().unwrap();
+    /// # let resource = server.create_resource("/stream");
+    /// assert_eq!(resource.request_count(), 0);
+    /// ```
+    pub fn request_count(&self) -> u32 {
+        *(self.request_count.lock().unwrap())
+    }
 }
 
 impl Clone for Resource {
+    /// Returns a `Resource` copy that shares state with other copies.
+    ///
+    /// This is useful when working with same Resource across threads.
     fn clone(&self) -> Self {
         Resource {
             status_code: self.status_code.clone(),
