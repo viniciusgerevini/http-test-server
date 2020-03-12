@@ -231,7 +231,13 @@ impl TestServer {
     pub fn create_resource(&self, uri: &str) -> Resource {
         let mut resources = self.resources.lock().unwrap();
         let resource = Resource::new();
-        resources.insert(String::from(uri), vec!(resource.clone()));
+
+        if resources.contains_key(uri) {
+            let resources_for_uri =  resources.get_mut(uri).unwrap();
+            resources_for_uri.push(resource.clone());
+        } else {
+            resources.insert(String::from(uri), vec!(resource.clone()));
+        }
 
         resource
     }
@@ -480,6 +486,30 @@ mod tests {
         reader.read_to_string(&mut line).unwrap();
 
         assert_eq!(line, "HTTP/1.1 200 Ok\r\n\r\n<some body>");
+    }
+
+    #[test]
+    fn should_allow_multiple_methods_for_same_uri() {
+        let server = TestServer::new().unwrap();
+        let resource = server.create_resource("/something-else");
+        let resource2 = server.create_resource("/something-else");
+
+        resource.method(Method::GET).status(Status::OK).body("<some body GET>");
+        resource2.method(Method::POST).status(Status::OK).body("<some body POST>");
+
+        let stream_get = make_request(server.port(), "/something-else");
+        let stream_post = make_post_request(server.port(), "/something-else");
+
+        let mut reader = BufReader::new(stream_get);
+        let mut line = String::new();
+        reader.read_to_string(&mut line).unwrap();
+
+        let mut reader = BufReader::new(stream_post);
+        let mut line2 = String::new();
+        reader.read_to_string(&mut line2).unwrap();
+
+        assert_eq!(line, "HTTP/1.1 200 Ok\r\n\r\n<some body GET>");
+        assert_eq!(line2, "HTTP/1.1 200 Ok\r\n\r\n<some body POST>");
     }
 
     #[test]
