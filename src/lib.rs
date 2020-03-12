@@ -170,7 +170,7 @@ impl TestServer {
 
         thread::spawn(move || {
             for stream in listener.incoming() {
-                let mut stream = stream.unwrap();
+                let stream = stream.unwrap();
 
                 let mut buffer = [0; 512];
                 stream.peek(&mut buffer).unwrap();
@@ -320,7 +320,7 @@ fn parse_header(message: String) -> (String, String) {
     (String::from(parts[0]), String::from(parts[1].trim()))
 }
 
-fn parse_request_header(reader: &mut BufRead) -> (String, String) {
+fn parse_request_header(reader: &mut dyn BufRead) -> (String, String) {
     let mut request_header = String::from("");
     reader.read_line(&mut request_header).unwrap();
 
