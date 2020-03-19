@@ -1,6 +1,6 @@
 # HTTP Test Server
 
-[![Documentation](https://docs.rs/http-test-server/badge.svg)](https://docs.rs/http-test-server/) [![Build Status](https://travis-ci.org/viniciusgerevini/http-test-server.svg?branch=master)](https://travis-ci.org/viniciusgerevini/http-test-server)
+[![Documentation](https://docs.rs/http-test-server/badge.svg)](https://docs.rs/http-test-server/) [![Build Status](https://travis-ci.com/viniciusgerevini/http-test-server.svg?branch=master)](https://travis-ci.com/viniciusgerevini/http-test-server)
 
 Programatically create end-points that listen for connections and return pre-defined responses.
 
