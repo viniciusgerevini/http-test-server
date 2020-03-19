@@ -109,6 +109,8 @@
 //!
 //!
 //! ```
+extern crate regex;
+
 pub mod resource;
 pub mod http;
 

@@ -8,6 +8,8 @@ use std::time::Duration;
 use ::Method;
 use ::Status;
 
+use regex::Regex;
+
 /// Responsible for configuring a resource and interacting with it.
 ///
 /// Must be created through `TestServer`.
@@ -30,6 +32,7 @@ use ::Status;
 #[derive(Debug)]
 pub struct Resource {
     uri: String,
+    uri_regex: Regex,
     status_code: Arc<Mutex<Status>>,
     custom_status_code: Arc<Mutex<Option<String>>>,
     headers: Arc<Mutex<HashMap<String, String>>>,
@@ -45,6 +48,7 @@ impl Resource {
     pub(crate) fn new(uri: &str) -> Resource {
         Resource {
             uri: String::from(uri),
+            uri_regex: create_uri_regex(uri),
             status_code: Arc::new(Mutex::new(Status::OK)),
             custom_status_code: Arc::new(Mutex::new(None)),
             headers: Arc::new(Mutex::new(HashMap::new())),
@@ -372,7 +376,7 @@ impl Resource {
     }
 
     pub(crate) fn matches_uri(&self, uri: &str) -> bool {
-        return &self.uri == uri;
+        self.uri_regex.is_match(uri)
     }
 }
 
@@ -383,6 +387,7 @@ impl Clone for Resource {
     fn clone(&self) -> Self {
         Resource {
             uri: self.uri.clone(),
+            uri_regex: self.uri_regex.clone(),
             status_code: self.status_code.clone(),
             custom_status_code: self.custom_status_code.clone(),
             headers: self.headers.clone(),
@@ -394,6 +399,12 @@ impl Clone for Resource {
             stream_listeners: self.stream_listeners.clone()
         }
     }
+}
+
+fn create_uri_regex(uri: &str) -> Regex {
+    let re = Regex::new(r"\{[A-z|0-9|/-/_]+\}").unwrap();
+    let pattern = re.replace_all(uri, r"[^//|/?]+");
+    Regex::new(&pattern).unwrap()
 }
 
 #[cfg(test)]
@@ -565,7 +576,25 @@ mod tests {
     #[test]
     fn should_match_uri() {
         let resource = Resource::new("/some-endpoint");
-        assert!(!resource.matches_uri("/some-other-endpoint"));
         assert!(resource.matches_uri("/some-endpoint"));
+    }
+
+    #[test]
+    fn should_not_match_uri() {
+        let resource = Resource::new("/some-endpoint");
+        assert!(!resource.matches_uri("/some-other-endpoint"));
+    }
+
+    #[test]
+    fn should_match_uri_with_path_params() {
+        let resource = Resource::new("/endpoint/{param1}/some/{param2}");
+        assert!(resource.matches_uri("/endpoint/123/some/abc"));
+        assert!(resource.matches_uri("/endpoint/123-345/some/abc"));
+    }
+
+    #[test]
+    fn should_not_match_uri_with_path_params() {
+        let resource = Resource::new("/endpoint/{param1}/some/{param2}");
+        assert!(!resource.matches_uri("/endpoint/123/some/"));
     }
 }
