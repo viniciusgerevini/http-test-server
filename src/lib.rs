@@ -230,7 +230,7 @@ impl TestServer {
     /// [`Resource`]: struct.Resource.html
     pub fn create_resource(&self, uri: &str) -> Resource {
         let mut resources = self.resources.lock().unwrap();
-        let resource = Resource::new();
+        let resource = Resource::new(uri);
 
         if resources.contains_key(uri) {
             let resources_for_uri =  resources.get_mut(uri).unwrap();
@@ -338,9 +338,9 @@ fn find_resource(method: String, url: String, resources: ServerResources) -> Res
                     resource.increment_request_count();
                     resource.clone()
                 },
-                None => Resource::new().status(Status::MethodNotAllowed).clone()
+                None => Resource::new(&url).status(Status::MethodNotAllowed).clone()
             },
-        None => Resource::new().status(Status::NotFound).clone()
+        None => Resource::new(&url).status(Status::NotFound).clone()
     }
 }
 

@@ -29,6 +29,7 @@ use ::Status;
 /// ```
 #[derive(Debug)]
 pub struct Resource {
+    uri: String,
     status_code: Arc<Mutex<Status>>,
     custom_status_code: Arc<Mutex<Option<String>>>,
     headers: Arc<Mutex<HashMap<String, String>>>,
@@ -41,8 +42,9 @@ pub struct Resource {
 }
 
 impl Resource {
-    pub(crate) fn new() -> Resource {
+    pub(crate) fn new(uri: &str) -> Resource {
         Resource {
+            uri: String::from(uri),
             status_code: Arc::new(Mutex::new(Status::OK)),
             custom_status_code: Arc::new(Mutex::new(None)),
             headers: Arc::new(Mutex::new(HashMap::new())),
@@ -368,6 +370,10 @@ impl Resource {
     pub fn request_count(&self) -> u32 {
         *(self.request_count.lock().unwrap())
     }
+
+    pub(crate) fn matches_uri(&self, uri: &str) -> bool {
+        return &self.uri == uri;
+    }
 }
 
 impl Clone for Resource {
@@ -376,6 +382,7 @@ impl Clone for Resource {
     /// This is useful when working with same Resource across threads.
     fn clone(&self) -> Self {
         Resource {
+            uri: self.uri.clone(),
             status_code: self.status_code.clone(),
             custom_status_code: self.custom_status_code.clone(),
             headers: self.headers.clone(),
@@ -396,7 +403,7 @@ mod tests {
 
     #[test]
     fn should_convert_to_response_string() {
-        let resource = Resource::new();
+        let resource = Resource::new("/");
         resource.status(Status::NotFound);
 
         assert_eq!(resource.to_response_string(), "HTTP/1.1 404 Not Found\r\n\r\n");
@@ -404,7 +411,7 @@ mod tests {
 
     #[test]
     fn should_convert_to_response_with_body() {
-        let resource = Resource::new();
+        let resource = Resource::new("/");
         resource.status(Status::Accepted).body("hello!");
 
         assert_eq!(resource.to_response_string(), "HTTP/1.1 202 Accepted\r\n\r\nhello!");
@@ -412,7 +419,7 @@ mod tests {
 
     #[test]
     fn should_allows_custom_status() {
-        let resource = Resource::new();
+        let resource = Resource::new("/");
         resource.custom_status(666, "The Number Of The Beast").body("hello!");
 
         assert_eq!(resource.to_response_string(), "HTTP/1.1 666 The Number Of The Beast\r\n\r\nhello!");
@@ -420,7 +427,7 @@ mod tests {
 
     #[test]
     fn should_overwrite_custom_status_with_status() {
-        let resource = Resource::new();
+        let resource = Resource::new("/");
         resource.custom_status(666, "The Number Of The Beast").status(Status::Forbidden).body("hello!");
 
         assert_eq!(resource.to_response_string(), "HTTP/1.1 403 Forbidden\r\n\r\nhello!");
@@ -428,7 +435,7 @@ mod tests {
 
     #[test]
     fn should_add_headers() {
-        let resource = Resource::new();
+        let resource = Resource::new("/");
         resource
             .header("Content-Type", "application/json")
             .body("hello!");
@@ -438,7 +445,7 @@ mod tests {
 
     #[test]
     fn should_append_headers() {
-        let resource = Resource::new();
+        let resource = Resource::new("/");
         resource
             .header("Content-Type", "application/json")
             .header("Connection", "Keep-Alive")
@@ -452,7 +459,7 @@ mod tests {
 
     #[test]
     fn should_increment_request_count() {
-        let resource = Resource::new();
+        let resource = Resource::new("/");
         resource.body("hello!");
 
         resource.increment_request_count();
@@ -464,7 +471,7 @@ mod tests {
 
     #[test]
     fn clones_should_share_same_state() {
-        let resource = Resource::new();
+        let resource = Resource::new("/");
         let dolly = resource.clone();
 
         resource.increment_request_count();
@@ -476,7 +483,7 @@ mod tests {
 
     #[test]
     fn should_set_as_stream() {
-        let resource = Resource::new();
+        let resource = Resource::new("/");
 
         resource.stream().status(Status::Accepted);
 
@@ -486,7 +493,7 @@ mod tests {
 
     #[test]
     fn should_notify_data() {
-        let resource = Resource::new();
+        let resource = Resource::new("/");
 
         let receiver = resource.stream_receiver();
         resource.send("some data").send("some data");
@@ -497,7 +504,7 @@ mod tests {
 
     #[test]
     fn should_close_connections() {
-        let resource = Resource::new();
+        let resource = Resource::new("/");
         let res = resource.clone();
         let receiver = resource.stream_receiver();
 
@@ -518,7 +525,7 @@ mod tests {
 
     #[test]
     fn should_return_number_of_connecteds_users() {
-        let resource = Resource::new();
+        let resource = Resource::new("/");
         let _receiver = resource.stream_receiver();
         let _receiver_2 = resource.stream_receiver();
 
@@ -528,7 +535,7 @@ mod tests {
 
     #[test]
     fn should_decrease_count_when_receiver_dropped() {
-        let resource = Resource::new();
+        let resource = Resource::new("/");
         resource.stream_receiver();
 
         resource.send("some data");
@@ -538,7 +545,7 @@ mod tests {
 
     #[test]
     fn should_send_data_with_line_break() {
-        let resource = Resource::new();
+        let resource = Resource::new("/");
 
         let receiver = resource.stream_receiver();
         resource.send_line("some data").send_line("again");
@@ -549,9 +556,16 @@ mod tests {
 
     #[test]
     fn should_set_delay() {
-        let resource = Resource::new();
+        let resource = Resource::new("/");
         resource.delay(Duration::from_millis(200));
 
         assert_eq!(resource.get_delay(), Some(Duration::from_millis(200)));
+    }
+
+    #[test]
+    fn should_match_uri() {
+        let resource = Resource::new("/some-endpoint");
+        assert!(!resource.matches_uri("/some-other-endpoint"));
+        assert!(resource.matches_uri("/some-endpoint"));
     }
 }
