@@ -396,55 +396,55 @@ mod tests {
 
     #[test]
     fn should_convert_to_response_string() {
-        let resource_not_found = Resource::new();
-        resource_not_found.status(Status::NotFound);
+        let resource = Resource::new();
+        resource.status(Status::NotFound);
 
-        assert_eq!(resource_not_found.to_response_string(), "HTTP/1.1 404 Not Found\r\n\r\n");
+        assert_eq!(resource.to_response_string(), "HTTP/1.1 404 Not Found\r\n\r\n");
     }
 
     #[test]
     fn should_convert_to_response_with_body() {
-        let resource_not_found = Resource::new();
-        resource_not_found.status(Status::Accepted).body("hello!");
+        let resource = Resource::new();
+        resource.status(Status::Accepted).body("hello!");
 
-        assert_eq!(resource_not_found.to_response_string(), "HTTP/1.1 202 Accepted\r\n\r\nhello!");
+        assert_eq!(resource.to_response_string(), "HTTP/1.1 202 Accepted\r\n\r\nhello!");
     }
 
     #[test]
     fn should_allows_custom_status() {
-        let resource_not_found = Resource::new();
-        resource_not_found.custom_status(666, "The Number Of The Beast").body("hello!");
+        let resource = Resource::new();
+        resource.custom_status(666, "The Number Of The Beast").body("hello!");
 
-        assert_eq!(resource_not_found.to_response_string(), "HTTP/1.1 666 The Number Of The Beast\r\n\r\nhello!");
+        assert_eq!(resource.to_response_string(), "HTTP/1.1 666 The Number Of The Beast\r\n\r\nhello!");
     }
 
     #[test]
     fn should_overwrite_custom_status_with_status() {
-        let resource_not_found = Resource::new();
-        resource_not_found.custom_status(666, "The Number Of The Beast").status(Status::Forbidden).body("hello!");
+        let resource = Resource::new();
+        resource.custom_status(666, "The Number Of The Beast").status(Status::Forbidden).body("hello!");
 
-        assert_eq!(resource_not_found.to_response_string(), "HTTP/1.1 403 Forbidden\r\n\r\nhello!");
+        assert_eq!(resource.to_response_string(), "HTTP/1.1 403 Forbidden\r\n\r\nhello!");
     }
 
     #[test]
     fn should_add_headers() {
-        let resource_not_found = Resource::new();
-        resource_not_found
+        let resource = Resource::new();
+        resource
             .header("Content-Type", "application/json")
             .body("hello!");
 
-        assert_eq!(resource_not_found.to_response_string(), "HTTP/1.1 200 Ok\r\nContent-Type: application/json\r\n\r\nhello!");
+        assert_eq!(resource.to_response_string(), "HTTP/1.1 200 Ok\r\nContent-Type: application/json\r\n\r\nhello!");
     }
 
     #[test]
     fn should_append_headers() {
-        let resource_not_found = Resource::new();
-        resource_not_found
+        let resource = Resource::new();
+        resource
             .header("Content-Type", "application/json")
             .header("Connection", "Keep-Alive")
             .body("hello!");
 
-        let response = resource_not_found.to_response_string();
+        let response = resource.to_response_string();
 
         assert!(response.contains("Content-Type: application/json\r\n"));
         assert!(response.contains("Connection: Keep-Alive\r\n"));
