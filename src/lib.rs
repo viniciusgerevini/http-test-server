@@ -278,7 +278,7 @@ fn handle_connection(stream: &TcpStream, resources: ServerResources, requests_tx
         let mut reader = BufReader::new(stream);
 
         let (method, url) = parse_request_header(&mut reader);
-        let resource = create_response(method.clone(), url.clone(), resources);
+        let resource = find_resource(method.clone(), url.clone(), resources);
 
         if let Some(delay) = resource.get_delay() {
             thread::sleep(delay);
@@ -330,7 +330,7 @@ fn parse_request_header(reader: &mut dyn BufRead) -> (String, String) {
     (request_header[0].to_string(), request_header[1].to_string())
 }
 
-fn create_response(method: String, url: String, resources: ServerResources) -> Resource {
+fn find_resource(method: String, url: String, resources: ServerResources) -> Resource {
     match resources.lock().unwrap().get(&url) {
         Some(resources) =>
             match resources.iter().find(|r| { r.get_method().equal(&method) }) {
