@@ -126,7 +126,7 @@ use http::Method;
 use http::Status;
 pub use resource::Resource;
 
-type ServerResources = Arc<Mutex<HashMap<String, Vec<Resource>>>>;
+type ServerResources = Arc<Mutex<Vec<Resource>>>;
 type RequestsTX = Arc<Mutex<Option<mpsc::Sender<Request>>>>;
 
 /// Controls the listener life cycle and creates new resources
@@ -162,7 +162,7 @@ impl TestServer {
     pub fn new_with_port(port: u16) -> Result<TestServer, Error> {
         let listener = TcpListener::bind(format!("localhost:{}", port)).unwrap();
         let port = listener.local_addr()?.port();
-        let resources: ServerResources = Arc::new(Mutex::new(HashMap::new()));
+        let resources: ServerResources = Arc::new(Mutex::new(vec!()));
         let requests_tx = Arc::new(Mutex::new(None));
 
         let res = Arc::clone(&resources);
@@ -232,12 +232,7 @@ impl TestServer {
         let mut resources = self.resources.lock().unwrap();
         let resource = Resource::new(uri);
 
-        if resources.contains_key(uri) {
-            let resources_for_uri =  resources.get_mut(uri).unwrap();
-            resources_for_uri.push(resource.clone());
-        } else {
-            resources.insert(String::from(uri), vec!(resource.clone()));
-        }
+        resources.push(resource.clone());
 
         resource
     }
@@ -331,17 +326,20 @@ fn parse_request_header(reader: &mut dyn BufRead) -> (String, String) {
 }
 
 fn find_resource(method: String, url: String, resources: ServerResources) -> Resource {
-    match resources.lock().unwrap().get(&url) {
-        Some(resources) =>
-            match resources.iter().find(|r| { r.get_method().equal(&method) }) {
-                Some(resource) => {
-                    resource.increment_request_count();
-                    resource.clone()
-                },
-                None => Resource::new(&url).status(Status::MethodNotAllowed).clone()
-            },
-        None => Resource::new(&url).status(Status::NotFound).clone()
+    let resources = resources.lock().unwrap();
+    let resources_for_uri = resources.iter().filter(|r| r.matches_uri(&url));
+
+    if resources_for_uri.count() == 0 {
+        return Resource::new(&url).status(Status::NotFound).clone();
     }
+
+    return match resources.iter().find(|r| { r.get_method().equal(&method) }) {
+        Some(resource) => {
+            resource.increment_request_count();
+            resource.clone()
+        },
+        None => Resource::new(&url).status(Status::MethodNotAllowed).clone()
+    };
 }
 
 /// Request information
