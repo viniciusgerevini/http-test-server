@@ -50,7 +50,7 @@ use regex::Regex;
 pub struct Resource {
     uri: String,
     uri_regex: Regex,
-    params: URIParameters,
+    params: Arc<Mutex<URIParameters>>,
     status_code: Arc<Mutex<Status>>,
     custom_status_code: Arc<Mutex<Option<String>>>,
     headers: Arc<Mutex<HashMap<String, String>>>,
@@ -63,7 +63,6 @@ pub struct Resource {
     stream_listeners: Arc<Mutex<Vec<mpsc::Sender<String>>>>
 }
 
-#[derive(Clone)]
 struct URIParameters {
     path: Vec<String>,
     query: HashMap<String, String>
@@ -76,7 +75,7 @@ impl Resource {
         Resource {
             uri: String::from(uri),
             uri_regex,
-            params,
+            params: Arc::new(Mutex::new(params)),
             status_code: Arc::new(Mutex::new(Status::OK)),
             custom_status_code: Arc::new(Mutex::new(None)),
             headers: Arc::new(Mutex::new(HashMap::new())),
@@ -163,6 +162,29 @@ impl Resource {
         headers.iter().fold(String::new(), | headers, (name, value) | {
             headers + &format!("{}: {}\r\n", name, value)
         })
+    }
+
+    /// Defines query parameters.
+    ///
+    /// ```
+    /// # use http_test_server::TestServer;
+    /// # let server = TestServer::new().unwrap();
+    /// # let resource = server.create_resource("/i-am-a-resource");
+    /// resource
+    ///     .query("filter", "*") // wildcard, matches any value
+    ///     .query("version", "1"); // only matches request with version == 1
+    /// ```
+    /// This is equivalent to:
+    /// ```
+    /// # use http_test_server::TestServer;
+    /// # use http_test_server::http::{Method, Status};
+    /// # let server = TestServer::new().unwrap();
+    /// let resource = server.create_resource("/?filter=*&version=1");
+    /// ```
+    pub fn query(&self, name: &str, value: &str) -> &Resource {
+        let mut params = self.params.lock().unwrap();
+        params.query.insert(String::from(name), String::from(value));
+        self
     }
 
     /// Defines response's body.
@@ -343,7 +365,7 @@ impl Resource {
         let mut params = HashMap::new();
 
         if let Some(values) = self.uri_regex.captures(uri) {
-            for param in &self.params.path {
+            for param in &self.params.lock().unwrap().path {
                 if let Some(value) = values.name(param) {
                     params.insert(String::from(param), String::from(value.as_str()));
                 }
@@ -502,7 +524,7 @@ impl Resource {
     fn matches_query_parameters(&self, uri: &str) -> bool {
         let query_params = extract_query_params(uri);
 
-        for (expected_key, expected_value) in &self.params.query {
+        for (expected_key, expected_value) in &self.params.lock().unwrap().query {
             if let Some(value) = query_params.get(expected_key) {
                 if expected_value != value && expected_value != "*" {
                     return false;
@@ -806,6 +828,20 @@ mod tests {
     fn should_not_match_uri_when_one_query_param_is_wrong() {
         let resource = Resource::new("/endpoint?userId=123&hello=abc");
         assert!(!resource.matches_uri("/endpoint?userId=123&hello=bbc"));
+    }
+
+    #[test]
+    fn should_match_uri_with_query_params_defined_through_method() {
+        let resource = Resource::new("/endpoint");
+        resource.query("hello", "abc").query("userId", "123");
+        assert!(resource.matches_uri("/endpoint?userId=123&hello=abc"));
+    }
+
+    #[test]
+    fn should_match_uri_with_wildcard_query_params_defined_through_method() {
+        let resource = Resource::new("/endpoint");
+        resource.query("hello", "*");
+        assert!(resource.matches_uri("/endpoint?hello=1234"));
     }
 
     #[test]
