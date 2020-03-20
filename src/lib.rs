@@ -4,7 +4,6 @@
 //! responses.
 //!
 //! - Allows multiple endpoints and simultaneous client connections
-//! - Resource builder for creating endpoints
 //! - Streaming support
 //! - Helper functions to retrieve data such as request count, number of connected clients and
 //! requests metadata
@@ -48,6 +47,33 @@
 //! // Cache-Control: no-cache\r\n
 //! // \r\n
 //! // { "message": "this is a message" }
+//!
+//!
+//! ```
+//!
+//! Use path and query parameters:
+//! ```
+//! extern crate http_test_server;
+//!
+//! use http_test_server::{TestServer, Resource};
+//! use http_test_server::http::{Status, Method};
+//!
+//! let server = TestServer::new().unwrap();
+//! let resource = server.create_resource("/user/{userId}?filter=*");
+
+//! resource
+//!     .status(Status::OK)
+//!     .header("Content-Type", "application/json")
+//!     .header("Cache-Control", "no-cache")
+//!     .body(r#"{ "id": "{path.userId}", "filter": "{query.filter}" }"#);
+//!
+//! // request: GET /user/abc123?filter=all
+//!
+//! // HTTP/1.1 200 Ok\r\n
+//! // Content-Type: application/json\r\n
+//! // Cache-Control: no-cache\r\n
+//! // \r\n
+//! // { "id": "abc123", "filter": "all" }
 //!
 //!
 //! ```
@@ -109,6 +135,8 @@
 //!
 //!
 //! ```
+extern crate regex;
+
 pub mod resource;
 pub mod http;
 
@@ -126,7 +154,7 @@ use http::Method;
 use http::Status;
 pub use resource::Resource;
 
-type ServerResources = Arc<Mutex<HashMap<String, Vec<Resource>>>>;
+type ServerResources = Arc<Mutex<Vec<Resource>>>;
 type RequestsTX = Arc<Mutex<Option<mpsc::Sender<Request>>>>;
 
 /// Controls the listener life cycle and creates new resources
@@ -162,7 +190,7 @@ impl TestServer {
     pub fn new_with_port(port: u16) -> Result<TestServer, Error> {
         let listener = TcpListener::bind(format!("localhost:{}", port)).unwrap();
         let port = listener.local_addr()?.port();
-        let resources: ServerResources = Arc::new(Mutex::new(HashMap::new()));
+        let resources: ServerResources = Arc::new(Mutex::new(vec!()));
         let requests_tx = Arc::new(Mutex::new(None));
 
         let res = Arc::clone(&resources);
@@ -230,14 +258,9 @@ impl TestServer {
     /// [`Resource`]: struct.Resource.html
     pub fn create_resource(&self, uri: &str) -> Resource {
         let mut resources = self.resources.lock().unwrap();
-        let resource = Resource::new();
+        let resource = Resource::new(uri);
 
-        if resources.contains_key(uri) {
-            let resources_for_uri =  resources.get_mut(uri).unwrap();
-            resources_for_uri.push(resource.clone());
-        } else {
-            resources.insert(String::from(uri), vec!(resource.clone()));
-        }
+        resources.push(resource.clone());
 
         resource
     }
@@ -284,7 +307,7 @@ fn handle_connection(stream: &TcpStream, resources: ServerResources, requests_tx
             thread::sleep(delay);
         }
 
-        write_stream.write(resource.to_response_string().as_bytes()).unwrap();
+        write_stream.write(resource.build_response(&url).as_bytes()).unwrap();
         write_stream.flush().unwrap();
 
         if let Some(ref tx) = *requests_tx.lock().unwrap() {
@@ -331,17 +354,20 @@ fn parse_request_header(reader: &mut dyn BufRead) -> (String, String) {
 }
 
 fn find_resource(method: String, url: String, resources: ServerResources) -> Resource {
-    match resources.lock().unwrap().get(&url) {
-        Some(resources) =>
-            match resources.iter().find(|r| { r.get_method().equal(&method) }) {
-                Some(resource) => {
-                    resource.increment_request_count();
-                    resource.clone()
-                },
-                None => Resource::new().status(Status::MethodNotAllowed).clone()
-            },
-        None => Resource::new().status(Status::NotFound).clone()
+    let resources = resources.lock().unwrap();
+    let resources_for_uri = resources.iter().filter(|r| r.matches_uri(&url));
+
+    if resources_for_uri.count() == 0 {
+        return Resource::new(&url).status(Status::NotFound).clone();
     }
+
+    return match resources.iter().find(|r| { r.get_method().equal(&method) }) {
+        Some(resource) => {
+            resource.increment_request_count();
+            resource.clone()
+        },
+        None => Resource::new(&url).status(Status::MethodNotAllowed).clone()
+    };
 }
 
 /// Request information
@@ -470,6 +496,22 @@ mod tests {
         reader.read_to_string(&mut line).unwrap();
 
         assert_eq!(line, "HTTP/1.1 200 Ok\r\n\r\n<some body>");
+    }
+
+    #[test]
+    fn should_return_resource_body_with_params() {
+        let server = TestServer::new().unwrap();
+        let resource = server.create_resource("/user/{userId}/{thing_id}/{yepyep}");
+
+        resource.status(Status::OK).body("User: {path.userId} Thing: {path.thing_id} Sth: {path.yepyep}");
+
+        let stream = make_request(server.port(), "/user/123/abc/Hello!");
+
+        let mut reader = BufReader::new(stream);
+        let mut line = String::new();
+        reader.read_to_string(&mut line).unwrap();
+
+        assert_eq!(line, "HTTP/1.1 200 Ok\r\n\r\nUser: 123 Thing: abc Sth: Hello!");
     }
 
     #[test]

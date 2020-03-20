@@ -9,3 +9,4 @@ description = "Programatically create resources and pre-defined responses for te
 keywords = ["http", "test", "server", "stream"]
 
 [dependencies]
+regex = "1"

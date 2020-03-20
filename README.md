@@ -5,7 +5,6 @@
 Programatically create end-points that listen for connections and return pre-defined responses.
 
 - Allows multiple endpoints and simultaneous client connections
-- Resource builder for creating endpoints
 - Streaming support
 - Helper functions to retrieve data such as request count, number of connected clients and
 requests metadata
@@ -49,6 +48,31 @@ resource
 // Cache-Control: no-cache\r\n
 // \r\n
 // { "message": "this is a message" }
+```
+
+Use path and query parameters
+```rust
+extern crate http_test_server;
+
+use http_test_server::{TestServer, Resource};
+use http_test_server::http::{Status, Method};
+
+let server = TestServer::new().unwrap();
+let resource = server.create_resource("/user/{userId}?filter=*");
+
+resource
+    .status(Status::OK)
+    .header("Content-Type", "application/json")
+    .header("Cache-Control", "no-cache")
+    .body(r#"{ "id": "{path.userId}", "filter": "{query.filter}" }"#);
+
+// request: GET /user/abc123?filter=all
+
+// HTTP/1.1 200 Ok\r\n
+// Content-Type: application/json\r\n
+// Cache-Control: no-cache\r\n
+// \r\n
+// { "id": "abc123", "filter": "all" }
 ```
 
 Expose a persistent stream:
