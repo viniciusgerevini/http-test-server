@@ -135,6 +135,21 @@
 //!
 //!
 //! ```
+//! Regex URI:
+//!
+//! ```
+//! # extern crate http_test_server;
+//! # use http_test_server::{TestServer, Resource};
+//! # use http_test_server::http::{Status, Method};
+//! let server = TestServer::new().unwrap();
+//! let resource = server.create_resource("/hello/[0-9]/[A-z]/.*");
+//!
+//! // request: GET /hello/8/b/doesntmatter-hehe
+//!
+//! // HTTP/1.1 200 Ok\r\n
+//! // \r\n
+//!
+//! ```
 extern crate regex;
 
 pub mod resource;
@@ -513,6 +528,23 @@ mod tests {
 
         assert_eq!(line, "HTTP/1.1 200 Ok\r\n\r\nUser: 123 Thing: abc Sth: Hello!");
     }
+
+    #[test]
+    fn should_work_with_regex_uri() {
+        let server = TestServer::new().unwrap();
+        let resource = server.create_resource("/hello/[0-9]/[A-z]/.*");
+
+        resource.method(Method::POST).status(Status::OK).body("<some body>");
+
+        let stream = make_post_request(server.port(), "/hello/8/b/doesntmatter-hehe");
+
+        let mut reader = BufReader::new(stream);
+        let mut line = String::new();
+        reader.read_to_string(&mut line).unwrap();
+
+        assert_eq!(line, "HTTP/1.1 200 Ok\r\n\r\n<some body>");
+    }
+
 
     #[test]
     fn should_listen_to_defined_method() {

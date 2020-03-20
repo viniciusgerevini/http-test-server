@@ -8,6 +8,7 @@ The only breaking change in this release is that `resource.body("")` now can ref
 
 ### Added
 
+- Support to regex URIs
 - Support to query and path parameters.
 - Support to using query and path parameters in body response.
 - Support to dynamic body.

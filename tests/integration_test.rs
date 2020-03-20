@@ -89,6 +89,25 @@ fn test_request_with_path_and_query_params() {
     );
 }
 
+#[test]
+fn test_request_to_regex_uri() {
+    let server = TestServer::new().unwrap();
+    let resource = server.create_resource("/hello/[0-9]/[A-z]/.*");
+    let requests = server.requests();
+
+    let response = request(server.port(), "/hello/2/b/goodbye", "GET");
+    let request_data = requests.recv().unwrap();
+
+    assert_eq!(response, "HTTP/1.1 200 Ok\r\n\r\n");
+
+    assert_eq!(request_data.url, "/hello/2/b/goodbye");
+    assert_eq!(request_data.method, "GET");
+    assert_eq!(request_data.headers, HashMap::new());
+
+    assert_eq!(resource.request_count(), 1);
+}
+
+
 fn request(port: u16, uri: &str, method: &str) -> String {
     let stream = open_stream(port, uri, method);
 

@@ -124,7 +124,20 @@ resource_target.body("Hi!");
 // \r\n
 ```
 
-Check `/tests/integration_test.rs` for more usage examples.
+Regex URI:
+
+```rust
+let server = TestServer::new().unwrap();
+let resource = server.create_resource("/hello/[0-9]/[A-z]/.*");
+
+// request: GET /hello/8/b/doesntmatter-hehe
+
+// HTTP/1.1 200 Ok\r\n
+// \r\n
+
+```
+
+Check  [/tests/integration_test.rs](tests/integration_test.rs) for more usage examples.
 
 ## License
 
