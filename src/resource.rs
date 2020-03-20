@@ -40,8 +40,13 @@ use regex::Regex;
 /// let resource = server.create_resource("/user/{userId}/details");
 /// resource.body("All good for {path.userId}!");
 /// ```
+/// _Note: I don't think it's a good idea to write mocks with complex behaviours. Usually,
+///  they are less maintainable and harder to track._
 ///
-#[derive(Debug)]
+///  _Instead, I would suggest creating one resource
+///  for each behaviour expected. Having said that, I'm not here to judge. Do whatever floats your boat! :)_
+///
+
 pub struct Resource {
     uri: String,
     uri_regex: Regex,
@@ -49,7 +54,8 @@ pub struct Resource {
     status_code: Arc<Mutex<Status>>,
     custom_status_code: Arc<Mutex<Option<String>>>,
     headers: Arc<Mutex<HashMap<String, String>>>,
-    body: Arc<Mutex<&'static str>>,
+    body: Arc<Mutex<Option<&'static str>>>,
+    body_builder: Arc<Mutex<Option<Box<dyn Fn(RequestParameters) -> String + Send>>>>, // ᕦ(ò_óˇ)ᕤ
     method: Arc<Mutex<Method>>,
     delay: Arc<Mutex<Option<Duration>>>,
     request_count: Arc<Mutex<u32>>,
@@ -68,7 +74,8 @@ impl Resource {
             status_code: Arc::new(Mutex::new(Status::OK)),
             custom_status_code: Arc::new(Mutex::new(None)),
             headers: Arc::new(Mutex::new(HashMap::new())),
-            body: Arc::new(Mutex::new("")),
+            body: Arc::new(Mutex::new(None)),
+            body_builder: Arc::new(Mutex::new(None)),
             method: Arc::new(Mutex::new(Method::GET)),
             delay: Arc::new(Mutex::new(None)),
             request_count: Arc::new(Mutex::new(0)),
@@ -156,7 +163,7 @@ impl Resource {
     ///
     /// If the response is a stream this value will be sent straight after connection.
     ///
-    /// Calling multiple times will overwrite the value.
+    /// Calling multiple times will overwrite the previous value.
     ///
     /// ```
     /// # use http_test_server::TestServer;
@@ -173,8 +180,42 @@ impl Resource {
     /// resource.body("Response for user: {path.userId}");
     /// ```
     pub fn body(&self, content: &'static str) -> &Resource {
+        if let Some(_) = *self.body_builder.lock().unwrap() {
+            panic!("You can't define 'body' when 'body_fn' is already defined");
+        }
+
         if let Ok(mut body) = self.body.lock() {
-            *body = content;
+            *body = Some(content);
+        }
+
+        self
+    }
+
+    /// Defines function used to build the response's body.
+    ///
+    /// If the response is a stream value will be sent straight after connection.
+    ///
+    /// Calling multiple times will overwrite the previous value.
+    ///
+    /// ```
+    /// # use http_test_server::TestServer;
+    /// # let server = TestServer::new().unwrap();
+    /// let resource = server.create_resource("/character/{id}");
+    /// resource.body_fn(|params| {
+    ///     match params.path.get("id").unwrap().as_str() {
+    ///         "Balrog" => r#"{ "message": "YOU SHALL NOT PASS!" }"#.to_string(),
+    ///         _ => r#"{ "message": "Fly, you fools!" }"#.to_string()
+    ///     }
+    /// });
+    ///
+    /// ```
+    pub fn body_fn(&self, builder: impl Fn(RequestParameters) -> String + Send + 'static) -> &Resource {
+        if let Some(_) = *self.body.lock().unwrap() {
+            panic!("You can't define 'body_fn' when 'body' is already defined");
+        }
+
+        if let Ok(mut body_builder) = self.body_builder.lock() {
+            *body_builder = Some(Box::new(builder));
         }
 
         self
@@ -258,18 +299,30 @@ impl Resource {
     }
 
     fn create_body(&self, uri: &str) -> String {
-        let mut body = self.body.lock().unwrap().to_string();
-
         let params = self.extract_params_from_uri(uri);
-        for (name, value) in &params {
-            let key = format!("{{path.{}}}", name);
-            body = body.replace(&key, value);
+
+        if let Some(body_builder) = &*self.body_builder.lock().unwrap() {
+            return body_builder(params);
         }
 
-        body.to_string()
+        match *self.body.lock().unwrap() {
+            Some(body) => {
+                let mut body = body.to_string();
+
+                for (name, value) in &params.path {
+                    let key = format!("{{path.{}}}", name);
+                    body = body.replace(&key, value);
+                }
+
+                body.to_string()
+            },
+            None => {
+                String::from("")
+            }
+        }
     }
 
-    fn extract_params_from_uri(&self, uri: &str) -> HashMap<String, String> {
+    fn extract_params_from_uri(&self, uri: &str) -> RequestParameters {
         let mut params = HashMap::new();
 
         if let Some(values) = self.uri_regex.captures(uri) {
@@ -280,7 +333,7 @@ impl Resource {
             }
         }
 
-        params
+        RequestParameters { path: params }
     }
 
     pub(crate) fn build_response(&self, uri: &str) -> String {
@@ -443,6 +496,7 @@ impl Clone for Resource {
             custom_status_code: self.custom_status_code.clone(),
             headers: self.headers.clone(),
             body: self.body.clone(),
+            body_builder: self.body_builder.clone(),
             method: self.method.clone(),
             delay: self.delay.clone(),
             request_count: self.request_count.clone(),
@@ -451,6 +505,11 @@ impl Clone for Resource {
         }
     }
 }
+
+pub struct RequestParameters {
+    pub path: HashMap<String, String>
+}
+
 
 fn create_uri_regex(uri: &str) -> (Regex, Vec<String>) {
     let re = Regex::new(r"\{(?P<p>([A-z|0-9|_])+)\}").unwrap();
@@ -680,5 +739,31 @@ mod tests {
         resource.status(Status::Accepted).body("Hello: {path.param2} {path.param1}");
 
         assert_eq!(resource.build_response("/endpoint/123/abc"), "HTTP/1.1 202 Accepted\r\n\r\nHello: abc 123");
+    }
+
+    #[test]
+    fn should_build_response_using_body_fn() {
+        let resource = Resource::new("/endpoint/{param1}/{param2}");
+        resource.status(Status::Accepted).body_fn(|params| {
+            format!("Hello: {} {}", params.path.get("param2").unwrap(), params.path.get("param1").unwrap())
+        });
+
+        assert_eq!(resource.build_response("/endpoint/123/abc"), "HTTP/1.1 202 Accepted\r\n\r\nHello: abc 123");
+    }
+
+    #[test]
+    #[should_panic(expected = "You can't define 'body_fn' when 'body' is already defined")]
+    fn should_fail_when_trying_to_define_body_fn_after_defining_body() {
+        let resource = Resource::new("/endpoint/{param1}/{param2}");
+        resource.body("some body");
+        resource.body_fn(|_params| String::from(""));
+    }
+
+    #[test]
+    #[should_panic(expected = "You can't define 'body' when 'body_fn' is already defined")]
+    fn should_fail_when_trying_to_define_body_after_defining_body_fn() {
+        let resource = Resource::new("/endpoint/{param1}/{param2}");
+        resource.body_fn(|_params| String::from(""));
+        resource.body("some body");
     }
 }
