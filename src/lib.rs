@@ -51,7 +51,7 @@
 //!
 //! ```
 //!
-//! Use path parameters:
+//! Use path and query parameters:
 //! ```
 //! extern crate http_test_server;
 //!
@@ -59,13 +59,13 @@
 //! use http_test_server::http::{Status, Method};
 //!
 //! let server = TestServer::new().unwrap();
-//! let resource = server.create_resource("/user/{userId}");
+//! let resource = server.create_resource("/user/{userId}?filter=*");
 
 //! resource
 //!     .status(Status::OK)
 //!     .header("Content-Type", "application/json")
 //!     .header("Cache-Control", "no-cache")
-//!     .body(r#"{ "id": "{path.userId}" }"#);
+//!     .body(r#"{ "id": "{path.userId}", "filter": "{query.filter}" }"#);
 //!
 //! // request: GET /user/abc123
 //!

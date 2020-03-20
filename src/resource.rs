@@ -30,15 +30,15 @@ use regex::Regex;
 ///
 /// ```
 ///
-/// To create resources with variable parts in the URL, you may use path parameters:
+/// To create resources with variable parts in the URL, you may use path and query parameters:
 ///
 /// ```
 /// # use http_test_server::TestServer;
 /// # use http_test_server::http::{Method, Status};
 /// # let server = TestServer::new().unwrap();
-/// // matches /user/*/details
-/// let resource = server.create_resource("/user/{userId}/details");
-/// resource.body("All good for {path.userId}!");
+/// // matches /user/*/details?filter=*
+/// let resource = server.create_resource("/user/{userId}/details?filter=*");
+/// resource.body("All good for {path.userId} with filter {query.filter}!");
 /// ```
 /// _Note: I don't think it's a good idea to write mocks with complex behaviours. Usually,
 ///  they are less maintainable and harder to track._
@@ -178,12 +178,12 @@ impl Resource {
     /// resource.body("this is important!");
     /// ```
     ///
-    /// It's possible to use path parameters in the response body by defining `{path.<parameter_name>}`:
+    /// It's possible to use path and query parameters in the response body by defining `{path.<parameter_name>}` or `{query.<parameter_name>}`:
     /// ```
     /// # use http_test_server::TestServer;
     /// # let server = TestServer::new().unwrap();
-    /// let resource = server.create_resource("/user/{userId}");
-    /// resource.body("Response for user: {path.userId}");
+    /// let resource = server.create_resource("/user/{userId}?filter=*");
+    /// resource.body("Response for user: {path.userId} filter: {query.filter}");
     /// ```
     pub fn body(&self, content: &'static str) -> &Resource {
         if let Some(_) = *self.body_builder.lock().unwrap() {
@@ -206,8 +206,10 @@ impl Resource {
     /// ```
     /// # use http_test_server::TestServer;
     /// # let server = TestServer::new().unwrap();
-    /// let resource = server.create_resource("/character/{id}");
+    /// let resource = server.create_resource("/character/{id}?version=*");
     /// resource.body_fn(|params| {
+    ///     println!("version: {}", params.query.get("version").unwrap());
+    ///
     ///     match params.path.get("id").unwrap().as_str() {
     ///         "Balrog" => r#"{ "message": "YOU SHALL NOT PASS!" }"#.to_string(),
     ///         _ => r#"{ "message": "Fly, you fools!" }"#.to_string()
@@ -502,7 +504,7 @@ impl Resource {
 
         for (expected_key, expected_value) in &self.params.query {
             if let Some(value) = query_params.get(expected_key) {
-                if expected_value != value {
+                if expected_value != value && expected_value != "*" {
                     return false;
                 }
             } else {
@@ -789,6 +791,12 @@ mod tests {
     }
 
     #[test]
+    fn should_match_uri_with_wildcard_query_params() {
+        let resource = Resource::new("/endpoint?userId=123&collectionId=*");
+        assert!(resource.matches_uri("/endpoint?userId=123&collectionId=banana"));
+    }
+
+    #[test]
     fn should_match_uri_with_query_params_in_different_order() {
         let resource = Resource::new("/endpoint?hello=abc&userId=123");
         assert!(resource.matches_uri("/endpoint?userId=123&hello=abc"));
@@ -830,6 +838,14 @@ mod tests {
         resource.status(Status::Accepted).body("Hello: {query.param2} {path.param1}");
 
         assert_eq!(resource.build_response("/endpoint/123?param2=111"), "HTTP/1.1 202 Accepted\r\n\r\nHello: 111 123");
+    }
+
+    #[test]
+    fn should_build_response_with_wildcard_query_parameters() {
+        let resource = Resource::new("/endpoint/{param1}?param2=111&param3=*");
+        resource.status(Status::Accepted).body("Hello: {query.param3}");
+
+        assert_eq!(resource.build_response("/endpoint/123?param2=111&param3=banana"), "HTTP/1.1 202 Accepted\r\n\r\nHello: banana");
     }
 
     #[test]
