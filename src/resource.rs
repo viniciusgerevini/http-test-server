@@ -320,6 +320,11 @@ impl Resource {
                     body = body.replace(&key, value);
                 }
 
+                for (name, value) in &params.query {
+                    let key = format!("{{query.{}}}", name);
+                    body = body.replace(&key, value);
+                }
+
                 body.to_string()
             },
             None => {
@@ -329,6 +334,10 @@ impl Resource {
     }
 
     fn extract_params_from_uri(&self, uri: &str) -> RequestParameters {
+        RequestParameters { path: self.extra_path_params(uri), query: extract_query_params(uri) }
+    }
+
+    fn extra_path_params(&self, uri: &str) -> HashMap<String, String> {
         let mut params = HashMap::new();
 
         if let Some(values) = self.uri_regex.captures(uri) {
@@ -339,7 +348,7 @@ impl Resource {
             }
         }
 
-        RequestParameters { path: params }
+        return params;
     }
 
     pub(crate) fn build_response(&self, uri: &str) -> String {
@@ -529,7 +538,8 @@ impl Clone for Resource {
 }
 
 pub struct RequestParameters {
-    pub path: HashMap<String, String>
+    pub path: HashMap<String, String>,
+    pub query: HashMap<String, String>
 }
 
 
@@ -812,6 +822,14 @@ mod tests {
         resource.status(Status::Accepted).body("Hello: {path.param2} {path.param1}");
 
         assert_eq!(resource.build_response("/endpoint/123/abc"), "HTTP/1.1 202 Accepted\r\n\r\nHello: abc 123");
+    }
+
+    #[test]
+    fn should_build_response_with_query_parameters() {
+        let resource = Resource::new("/endpoint/{param1}?param2=111");
+        resource.status(Status::Accepted).body("Hello: {query.param2} {path.param1}");
+
+        assert_eq!(resource.build_response("/endpoint/123?param2=111"), "HTTP/1.1 202 Accepted\r\n\r\nHello: 111 123");
     }
 
     #[test]
