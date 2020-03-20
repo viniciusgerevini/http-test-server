@@ -10,19 +10,7 @@ Programatically create end-points that listen for connections and return pre-def
 requests metadata
 - Automatically allocates free port and close server after use
 
-*NOTE*: This is not intended to work as a full featured server. For this reason many validations
-and behaviours are not implemented. e.g: A request with `Accept` header with not supported
-`Content-Type` won't trigger a `406 Not Acceptable`.
-
-As this crate was devised to be used in tests, smart behaviours could be confusing and misleading.
-
-Having said that, there are some default behaviours implemented:
-
-- Server returns `404 Not Found` when requested resource was not configured.
-- Server returns `405 Method Not Allowed` when trying to reach resource with different method from those configured.
-- When a resource is created it responds to `GET` with `200 Ok` by default.
-
-# Example:
+# Examples:
 
 Accept POST requests:
 ```rust
@@ -138,6 +126,18 @@ let resource = server.create_resource("/hello/[0-9]/[A-z]/.*");
 ```
 
 Check  [/tests/integration_test.rs](tests/integration_test.rs) for more usage examples.
+
+---
+*NOTE*: This is not intended to work as a full featured server. For this reason, many validations
+and behaviours are not implemented. e.g: A request with `Accept` header with not supported
+`Content-Type` won't trigger a `406 Not Acceptable`.
+
+As this crate was devised to be used in tests, smart behaviours could be confusing and misleading. Having said that, for the sake of convenience, some default behaviours were implemented:
+
+- Server returns `404 Not Found` when requested resource was not configured.
+- Server returns `405 Method Not Allowed` when trying to reach resource with different method from those configured.
+- When a resource is created it responds to `GET` with `200 Ok` by default.
+---
 
 ## License
 
