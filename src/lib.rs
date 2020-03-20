@@ -67,13 +67,13 @@
 //!     .header("Cache-Control", "no-cache")
 //!     .body(r#"{ "id": "{path.userId}", "filter": "{query.filter}" }"#);
 //!
-//! // request: GET /user/abc123
+//! // request: GET /user/abc123?filter=all
 //!
 //! // HTTP/1.1 200 Ok\r\n
 //! // Content-Type: application/json\r\n
 //! // Cache-Control: no-cache\r\n
 //! // \r\n
-//! // { "id": "abc123" }
+//! // { "id": "abc123", "filter": "all" }
 //!
 //!
 //! ```
