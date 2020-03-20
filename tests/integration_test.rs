@@ -71,6 +71,21 @@ fn test_stream() {
     assert_eq!(response, "HTTP/1.1 200 Ok\r\nContent-Type: text/event-stream\r\n\r\n: initial data\nHello.\nIs there anybody in there?\nJust nod if you can hear me.\n");
 }
 
+#[test]
+fn test_request_with_path_params() {
+    let server = TestServer::new().unwrap();
+    let resource = server.create_resource("/user/{userId}");
+
+    resource
+        .status(Status::OK)
+        .header("Content-Type", "application/json")
+        .body(r#"{"id": 123, "userId": "{path.userId}"}"#);
+
+    let response = request(server.port(), "/user/superUser", "GET");
+
+    assert_eq!(response, "HTTP/1.1 200 Ok\r\nContent-Type: application/json\r\n\r\n{\"id\": 123, \"userId\": \"superUser\"}");
+}
+
 fn request(port: u16, uri: &str, method: &str) -> String {
     let stream = open_stream(port, uri, method);
 

@@ -4,7 +4,6 @@
 //! responses.
 //!
 //! - Allows multiple endpoints and simultaneous client connections
-//! - Resource builder for creating endpoints
 //! - Streaming support
 //! - Helper functions to retrieve data such as request count, number of connected clients and
 //! requests metadata
@@ -48,6 +47,33 @@
 //! // Cache-Control: no-cache\r\n
 //! // \r\n
 //! // { "message": "this is a message" }
+//!
+//!
+//! ```
+//!
+//! Use path parameters:
+//! ```
+//! extern crate http_test_server;
+//!
+//! use http_test_server::{TestServer, Resource};
+//! use http_test_server::http::{Status, Method};
+//!
+//! let server = TestServer::new().unwrap();
+//! let resource = server.create_resource("/user/{userId}");
+
+//! resource
+//!     .status(Status::OK)
+//!     .header("Content-Type", "application/json")
+//!     .header("Cache-Control", "no-cache")
+//!     .body(r#"{ "id": "{path.userId}" }"#);
+//!
+//! // request: GET /user/abc123
+//!
+//! // HTTP/1.1 200 Ok\r\n
+//! // Content-Type: application/json\r\n
+//! // Cache-Control: no-cache\r\n
+//! // \r\n
+//! // { "id": "abc123" }
 //!
 //!
 //! ```
@@ -281,7 +307,7 @@ fn handle_connection(stream: &TcpStream, resources: ServerResources, requests_tx
             thread::sleep(delay);
         }
 
-        write_stream.write(resource.to_response_string().as_bytes()).unwrap();
+        write_stream.write(resource.build_response(&url).as_bytes()).unwrap();
         write_stream.flush().unwrap();
 
         if let Some(ref tx) = *requests_tx.lock().unwrap() {
@@ -470,6 +496,22 @@ mod tests {
         reader.read_to_string(&mut line).unwrap();
 
         assert_eq!(line, "HTTP/1.1 200 Ok\r\n\r\n<some body>");
+    }
+
+    #[test]
+    fn should_return_resource_body_with_params() {
+        let server = TestServer::new().unwrap();
+        let resource = server.create_resource("/user/{userId}/{thing_id}/{yepyep}");
+
+        resource.status(Status::OK).body("User: {path.userId} Thing: {path.thing_id} Sth: {path.yepyep}");
+
+        let stream = make_request(server.port(), "/user/123/abc/Hello!");
+
+        let mut reader = BufReader::new(stream);
+        let mut line = String::new();
+        reader.read_to_string(&mut line).unwrap();
+
+        assert_eq!(line, "HTTP/1.1 200 Ok\r\n\r\nUser: 123 Thing: abc Sth: Hello!");
     }
 
     #[test]

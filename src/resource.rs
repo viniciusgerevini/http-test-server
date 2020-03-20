@@ -29,10 +29,23 @@ use regex::Regex;
 ///     .body("All good!");
 ///
 /// ```
+///
+/// To create resources with variable parts in the URL, you may use path parameters:
+///
+/// ```
+/// # use http_test_server::TestServer;
+/// # use http_test_server::http::{Method, Status};
+/// # let server = TestServer::new().unwrap();
+/// // matches /user/*/details
+/// let resource = server.create_resource("/user/{userId}/details");
+/// resource.body("All good for {path.userId}!");
+/// ```
+///
 #[derive(Debug)]
 pub struct Resource {
     uri: String,
     uri_regex: Regex,
+    path_params: Vec<String>,
     status_code: Arc<Mutex<Status>>,
     custom_status_code: Arc<Mutex<Option<String>>>,
     headers: Arc<Mutex<HashMap<String, String>>>,
@@ -46,9 +59,12 @@ pub struct Resource {
 
 impl Resource {
     pub(crate) fn new(uri: &str) -> Resource {
+        let (uri_regex, path_params) = create_uri_regex(uri);
+
         Resource {
             uri: String::from(uri),
-            uri_regex: create_uri_regex(uri),
+            uri_regex,
+            path_params,
             status_code: Arc::new(Mutex::new(Status::OK)),
             custom_status_code: Arc::new(Mutex::new(None)),
             headers: Arc::new(Mutex::new(HashMap::new())),
@@ -148,6 +164,14 @@ impl Resource {
     /// # let resource = server.create_resource("/i-am-a-resource");
     /// resource.body("this is important!");
     /// ```
+    ///
+    /// It's possible to use path parameters in the response body by defining `{path.<parameter_name>}`:
+    /// ```
+    /// # use http_test_server::TestServer;
+    /// # let server = TestServer::new().unwrap();
+    /// let resource = server.create_resource("/user/{userId}");
+    /// resource.body("Response for user: {path.userId}");
+    /// ```
     pub fn body(&self, content: &'static str) -> &Resource {
         if let Ok(mut body) = self.body.lock() {
             *body = content;
@@ -233,11 +257,37 @@ impl Resource {
         *(self.is_stream.lock().unwrap())
     }
 
-    pub(crate) fn to_response_string(&self) -> String {
+    fn create_body(&self, uri: &str) -> String {
+        let mut body = self.body.lock().unwrap().to_string();
+
+        let params = self.extract_params_from_uri(uri);
+        for (name, value) in &params {
+            let key = format!("{{path.{}}}", name);
+            body = body.replace(&key, value);
+        }
+
+        body.to_string()
+    }
+
+    fn extract_params_from_uri(&self, uri: &str) -> HashMap<String, String> {
+        let mut params = HashMap::new();
+
+        if let Some(values) = self.uri_regex.captures(uri) {
+            for param in &self.path_params {
+                if let Some(value) = values.name(param) {
+                    params.insert(String::from(param), String::from(value.as_str()));
+                }
+            }
+        }
+
+        params
+    }
+
+    pub(crate) fn build_response(&self, uri: &str) -> String {
         format!("HTTP/1.1 {}\r\n{}\r\n{}",
             self.get_status_description(),
             self.get_headers(),
-            *(self.body.lock().unwrap())
+            self.create_body(uri)
         )
     }
 
@@ -388,6 +438,7 @@ impl Clone for Resource {
         Resource {
             uri: self.uri.clone(),
             uri_regex: self.uri_regex.clone(),
+            path_params: self.path_params.clone(),
             status_code: self.status_code.clone(),
             custom_status_code: self.custom_status_code.clone(),
             headers: self.headers.clone(),
@@ -401,10 +452,19 @@ impl Clone for Resource {
     }
 }
 
-fn create_uri_regex(uri: &str) -> Regex {
-    let re = Regex::new(r"\{[A-z|0-9|/-/_]+\}").unwrap();
-    let pattern = re.replace_all(uri, r"[^//|/?]+");
-    Regex::new(&pattern).unwrap()
+fn create_uri_regex(uri: &str) -> (Regex, Vec<String>) {
+    let re = Regex::new(r"\{(?P<p>([A-z|0-9|_])+)\}").unwrap();
+
+    let params: Vec<String> = re.captures_iter(uri).filter_map(|cap| {
+        match cap.name("p") {
+            Some(p) => Some(String::from(p.as_str())),
+            None => None
+        }
+    }).collect();
+
+    let pattern = re.replace_all(uri, r"(?P<$p>[^//|/?]+)");
+
+    (Regex::new(&pattern).unwrap(), params)
 }
 
 #[cfg(test)]
@@ -417,7 +477,7 @@ mod tests {
         let resource = Resource::new("/");
         resource.status(Status::NotFound);
 
-        assert_eq!(resource.to_response_string(), "HTTP/1.1 404 Not Found\r\n\r\n");
+        assert_eq!(resource.build_response("/"), "HTTP/1.1 404 Not Found\r\n\r\n");
     }
 
     #[test]
@@ -425,7 +485,7 @@ mod tests {
         let resource = Resource::new("/");
         resource.status(Status::Accepted).body("hello!");
 
-        assert_eq!(resource.to_response_string(), "HTTP/1.1 202 Accepted\r\n\r\nhello!");
+        assert_eq!(resource.build_response("/"), "HTTP/1.1 202 Accepted\r\n\r\nhello!");
     }
 
     #[test]
@@ -433,7 +493,7 @@ mod tests {
         let resource = Resource::new("/");
         resource.custom_status(666, "The Number Of The Beast").body("hello!");
 
-        assert_eq!(resource.to_response_string(), "HTTP/1.1 666 The Number Of The Beast\r\n\r\nhello!");
+        assert_eq!(resource.build_response("/"), "HTTP/1.1 666 The Number Of The Beast\r\n\r\nhello!");
     }
 
     #[test]
@@ -441,7 +501,7 @@ mod tests {
         let resource = Resource::new("/");
         resource.custom_status(666, "The Number Of The Beast").status(Status::Forbidden).body("hello!");
 
-        assert_eq!(resource.to_response_string(), "HTTP/1.1 403 Forbidden\r\n\r\nhello!");
+        assert_eq!(resource.build_response("/"), "HTTP/1.1 403 Forbidden\r\n\r\nhello!");
     }
 
     #[test]
@@ -451,7 +511,7 @@ mod tests {
             .header("Content-Type", "application/json")
             .body("hello!");
 
-        assert_eq!(resource.to_response_string(), "HTTP/1.1 200 Ok\r\nContent-Type: application/json\r\n\r\nhello!");
+        assert_eq!(resource.build_response("/"), "HTTP/1.1 200 Ok\r\nContent-Type: application/json\r\n\r\nhello!");
     }
 
     #[test]
@@ -462,7 +522,7 @@ mod tests {
             .header("Connection", "Keep-Alive")
             .body("hello!");
 
-        let response = resource.to_response_string();
+        let response = resource.build_response("/");
 
         assert!(response.contains("Content-Type: application/json\r\n"));
         assert!(response.contains("Connection: Keep-Alive\r\n"));
@@ -580,7 +640,7 @@ mod tests {
     }
 
     #[test]
-    fn should_not_match_uri() {
+    fn should_not_match_uri_when_uri_does_not_match() {
         let resource = Resource::new("/some-endpoint");
         assert!(!resource.matches_uri("/some-other-endpoint"));
     }
@@ -593,8 +653,32 @@ mod tests {
     }
 
     #[test]
-    fn should_not_match_uri_with_path_params() {
+    fn should_not_match_uri_with_path_params_when_uri_does_not_match() {
         let resource = Resource::new("/endpoint/{param1}/some/{param2}");
         assert!(!resource.matches_uri("/endpoint/123/some/"));
+    }
+
+    #[test]
+    fn should_build_response() {
+        let resource = Resource::new("/");
+        resource.status(Status::NotFound);
+
+        assert_eq!(resource.build_response("/"), "HTTP/1.1 404 Not Found\r\n\r\n");
+    }
+
+    #[test]
+    fn should_build_response_with_body() {
+        let resource = Resource::new("/");
+        resource.status(Status::Accepted).body("hello!");
+
+        assert_eq!(resource.build_response("/"), "HTTP/1.1 202 Accepted\r\n\r\nhello!");
+    }
+
+    #[test]
+    fn should_build_response_with_path_parameters() {
+        let resource = Resource::new("/endpoint/{param1}/{param2}");
+        resource.status(Status::Accepted).body("Hello: {path.param2} {path.param1}");
+
+        assert_eq!(resource.build_response("/endpoint/123/abc"), "HTTP/1.1 202 Accepted\r\n\r\nHello: abc 123");
     }
 }
