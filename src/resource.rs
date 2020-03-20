@@ -50,7 +50,7 @@ use regex::Regex;
 pub struct Resource {
     uri: String,
     uri_regex: Regex,
-    path_params: Vec<String>,
+    params: URIParameters,
     status_code: Arc<Mutex<Status>>,
     custom_status_code: Arc<Mutex<Option<String>>>,
     headers: Arc<Mutex<HashMap<String, String>>>,
@@ -63,14 +63,20 @@ pub struct Resource {
     stream_listeners: Arc<Mutex<Vec<mpsc::Sender<String>>>>
 }
 
+#[derive(Clone)]
+struct URIParameters {
+    path: Vec<String>,
+    query: HashMap<String, String>
+}
+
 impl Resource {
     pub(crate) fn new(uri: &str) -> Resource {
-        let (uri_regex, path_params) = create_uri_regex(uri);
+        let (uri_regex, params) = create_uri_regex(uri);
 
         Resource {
             uri: String::from(uri),
             uri_regex,
-            path_params,
+            params,
             status_code: Arc::new(Mutex::new(Status::OK)),
             custom_status_code: Arc::new(Mutex::new(None)),
             headers: Arc::new(Mutex::new(HashMap::new())),
@@ -326,7 +332,7 @@ impl Resource {
         let mut params = HashMap::new();
 
         if let Some(values) = self.uri_regex.captures(uri) {
-            for param in &self.path_params {
+            for param in &self.params.path {
                 if let Some(value) = values.name(param) {
                     params.insert(String::from(param), String::from(value.as_str()));
                 }
@@ -479,7 +485,23 @@ impl Resource {
     }
 
     pub(crate) fn matches_uri(&self, uri: &str) -> bool {
-        self.uri_regex.is_match(uri)
+        self.uri_regex.is_match(uri) && self.matches_query_parameters(uri)
+    }
+
+    fn matches_query_parameters(&self, uri: &str) -> bool {
+        let query_params = extract_query_params(uri);
+
+        for (expected_key, expected_value) in &self.params.query {
+            if let Some(value) = query_params.get(expected_key) {
+                if expected_value != value {
+                    return false;
+                }
+            } else {
+                return false;
+            }
+        }
+
+        return true;
     }
 }
 
@@ -491,7 +513,7 @@ impl Clone for Resource {
         Resource {
             uri: self.uri.clone(),
             uri_regex: self.uri_regex.clone(),
-            path_params: self.path_params.clone(),
+            params: self.params.clone(),
             status_code: self.status_code.clone(),
             custom_status_code: self.custom_status_code.clone(),
             headers: self.headers.clone(),
@@ -511,8 +533,9 @@ pub struct RequestParameters {
 }
 
 
-fn create_uri_regex(uri: &str) -> (Regex, Vec<String>) {
+fn create_uri_regex(uri: &str) -> (Regex, URIParameters) {
     let re = Regex::new(r"\{(?P<p>([A-z|0-9|_])+)\}").unwrap();
+    let query_regex = Regex::new(r"\?.*").unwrap();
 
     let params: Vec<String> = re.captures_iter(uri).filter_map(|cap| {
         match cap.name("p") {
@@ -521,9 +544,29 @@ fn create_uri_regex(uri: &str) -> (Regex, Vec<String>) {
         }
     }).collect();
 
-    let pattern = re.replace_all(uri, r"(?P<$p>[^//|/?]+)");
+    let query_params = extract_query_params(uri);
 
-    (Regex::new(&pattern).unwrap(), params)
+    let pattern = query_regex.replace(uri, "");
+    let pattern = re.replace_all(&pattern, r"(?P<$p>[^//|/?]+)");
+
+    (Regex::new(&pattern).unwrap(), URIParameters { path: params, query: query_params})
+}
+
+fn extract_query_params(uri: &str) -> HashMap<String, String> {
+    let query_regex = Regex::new(r"((?P<qk>[^&]+)=(?P<qv>[^&]+))*").unwrap();
+    let path_regex = Regex::new(r".*\?").unwrap();
+    let only_query_parameters = path_regex.replace(uri, "");
+
+    query_regex.captures_iter(&only_query_parameters).filter_map(|cap| {
+        if let Some(query_key) = cap.name("qk") {
+            let query_value = match cap.name("qv") {
+                Some(v) => String::from(v.as_str()),
+                None => String::from("")
+            };
+            return Some((String::from(query_key.as_str()), query_value));
+        }
+        None
+    }).collect()
 }
 
 #[cfg(test)]
@@ -715,6 +758,36 @@ mod tests {
     fn should_not_match_uri_with_path_params_when_uri_does_not_match() {
         let resource = Resource::new("/endpoint/{param1}/some/{param2}");
         assert!(!resource.matches_uri("/endpoint/123/some/"));
+    }
+
+    #[test]
+    fn should_match_uri_with_query_params() {
+        let resource = Resource::new("/endpoint?userId=123");
+        assert!(resource.matches_uri("/endpoint?userId=123"));
+    }
+
+    #[test]
+    fn should_not_match_uri_with_wrong_query_parameter() {
+        let resource = Resource::new("/endpoint?userId=123");
+        assert!(!resource.matches_uri("/endpoint?userId=abc"));
+    }
+
+    #[test]
+    fn should_match_uri_with_multiple_query_params() {
+        let resource = Resource::new("/endpoint?userId=123&hello=abc");
+        assert!(resource.matches_uri("/endpoint?userId=123&hello=abc"));
+    }
+
+    #[test]
+    fn should_match_uri_with_query_params_in_different_order() {
+        let resource = Resource::new("/endpoint?hello=abc&userId=123");
+        assert!(resource.matches_uri("/endpoint?userId=123&hello=abc"));
+    }
+
+    #[test]
+    fn should_not_match_uri_when_one_query_param_is_wrong() {
+        let resource = Resource::new("/endpoint?userId=123&hello=abc");
+        assert!(!resource.matches_uri("/endpoint?userId=123&hello=bbc"));
     }
 
     #[test]
