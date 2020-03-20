@@ -2,9 +2,10 @@
 
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
-## Unreleased
+## 2.0.0 (2020-03-21)
 
-The only breaking change in this release is that `resource.body("")` now can reference path and query parameters. What it means is that if `{path.<param_name>}` or `{query.<param_name>}` is provided, they will be translated to the values received in the request.
+### Breaking changes
+- `resource.body("")` now can reference path and query parameters. What it means is that if `{path.<param_name>}` or `{query.<param_name>}` is provided, they will be translated to the values received in the request.
 
 ### Added
 
