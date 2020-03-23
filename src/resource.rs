@@ -2,6 +2,7 @@
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::mpsc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::collections::HashMap;
 use std::time::Duration;
 
@@ -55,11 +56,11 @@ pub struct Resource {
     custom_status_code: Arc<Mutex<Option<String>>>,
     headers: Arc<Mutex<HashMap<String, String>>>,
     body: Arc<Mutex<Option<&'static str>>>,
-    body_builder: Arc<Mutex<Option<Box<dyn Fn(RequestParameters) -> String + Send>>>>, // ᕦ(ò_óˇ)ᕤ
+    body_builder: Arc<Mutex<Option<BodyBuilder>>>, // ᕦ(ò_óˇ)ᕤ
     method: Arc<Mutex<Method>>,
     delay: Arc<Mutex<Option<Duration>>>,
     request_count: Arc<Mutex<u32>>,
-    is_stream: Arc<Mutex<bool>>,
+    is_stream: Arc<AtomicBool>,
     stream_listeners: Arc<Mutex<Vec<mpsc::Sender<String>>>>
 }
 
@@ -67,6 +68,8 @@ struct URIParameters {
     path: Vec<String>,
     query: HashMap<String, String>
 }
+
+type BodyBuilder = Box<dyn Fn(RequestParameters) -> String + Send>;
 
 impl Resource {
     pub(crate) fn new(uri: &str) -> Resource {
@@ -84,7 +87,7 @@ impl Resource {
             method: Arc::new(Mutex::new(Method::GET)),
             delay: Arc::new(Mutex::new(None)),
             request_count: Arc::new(Mutex::new(0)),
-            is_stream: Arc::new(Mutex::new(false)),
+            is_stream: Arc::new(AtomicBool::new(false)),
             stream_listeners: Arc::new(Mutex::new(vec!()))
         }
     }
@@ -319,13 +322,13 @@ impl Resource {
     /// [`stream_receiver`]: struct.Resource.html#method.stream_receiver
     /// [`close_open_connections`]: struct.Resource.html#method.close_open_connections
     pub fn stream(&self) -> &Resource {
-        *(self.is_stream.lock().unwrap()) = true;
+        self.is_stream.store(true, Ordering::Relaxed);
 
         self
     }
 
     pub(crate) fn is_stream(&self) -> bool {
-        *(self.is_stream.lock().unwrap())
+        self.is_stream.load(Ordering::Relaxed)
     }
 
     fn create_body(&self, uri: &str) -> String {

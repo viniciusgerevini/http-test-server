@@ -353,7 +353,7 @@ fn handle_connection(stream: &TcpStream, resources: ServerResources, requests_tx
 }
 
 fn parse_header(message: String) -> (String, String) {
-    let parts: Vec<&str> = message.splitn(2, ":").collect();
+    let parts: Vec<&str> = message.splitn(2, ':').collect();
     (String::from(parts[0]), String::from(parts[1].trim()))
 }
 
