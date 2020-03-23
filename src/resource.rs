@@ -2,6 +2,7 @@
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::sync::mpsc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::collections::HashMap;
 use std::time::Duration;
 
@@ -55,11 +56,11 @@ pub struct Resource {
     custom_status_code: Arc<Mutex<Option<String>>>,
     headers: Arc<Mutex<HashMap<String, String>>>,
     body: Arc<Mutex<Option<&'static str>>>,
-    body_builder: Arc<Mutex<Option<Box<dyn Fn(RequestParameters) -> String + Send>>>>, // ᕦ(ò_óˇ)ᕤ
+    body_builder: Arc<Mutex<Option<BodyBuilder>>>, // ᕦ(ò_óˇ)ᕤ
     method: Arc<Mutex<Method>>,
     delay: Arc<Mutex<Option<Duration>>>,
     request_count: Arc<Mutex<u32>>,
-    is_stream: Arc<Mutex<bool>>,
+    is_stream: Arc<AtomicBool>,
     stream_listeners: Arc<Mutex<Vec<mpsc::Sender<String>>>>
 }
 
@@ -67,6 +68,8 @@ struct URIParameters {
     path: Vec<String>,
     query: HashMap<String, String>
 }
+
+type BodyBuilder = Box<dyn Fn(RequestParameters) -> String + Send>;
 
 impl Resource {
     pub(crate) fn new(uri: &str) -> Resource {
@@ -84,7 +87,7 @@ impl Resource {
             method: Arc::new(Mutex::new(Method::GET)),
             delay: Arc::new(Mutex::new(None)),
             request_count: Arc::new(Mutex::new(0)),
-            is_stream: Arc::new(Mutex::new(false)),
+            is_stream: Arc::new(AtomicBool::new(false)),
             stream_listeners: Arc::new(Mutex::new(vec!()))
         }
     }
@@ -208,7 +211,7 @@ impl Resource {
     /// resource.body("Response for user: {path.userId} filter: {query.filter}");
     /// ```
     pub fn body(&self, content: &'static str) -> &Resource {
-        if let Some(_) = *self.body_builder.lock().unwrap() {
+        if self.body_builder.lock().unwrap().is_some() {
             panic!("You can't define 'body' when 'body_fn' is already defined");
         }
 
@@ -240,7 +243,7 @@ impl Resource {
     ///
     /// ```
     pub fn body_fn(&self, builder: impl Fn(RequestParameters) -> String + Send + 'static) -> &Resource {
-        if let Some(_) = *self.body.lock().unwrap() {
+        if self.body.lock().unwrap().is_some() {
             panic!("You can't define 'body_fn' when 'body' is already defined");
         }
 
@@ -295,7 +298,7 @@ impl Resource {
     }
 
     pub(crate) fn get_delay(&self) -> Option<Duration> {
-        (*self.delay.lock().unwrap()).clone()
+        *self.delay.lock().unwrap()
     }
 
     /// Set response as stream, this means clients won't be disconnected after body is sent and
@@ -319,13 +322,13 @@ impl Resource {
     /// [`stream_receiver`]: struct.Resource.html#method.stream_receiver
     /// [`close_open_connections`]: struct.Resource.html#method.close_open_connections
     pub fn stream(&self) -> &Resource {
-        *(self.is_stream.lock().unwrap()) = true;
+        self.is_stream.store(true, Ordering::Relaxed);
 
         self
     }
 
     pub(crate) fn is_stream(&self) -> bool {
-        *(self.is_stream.lock().unwrap())
+        self.is_stream.load(Ordering::Relaxed)
     }
 
     fn create_body(&self, uri: &str) -> String {
@@ -349,7 +352,7 @@ impl Resource {
                     body = body.replace(&key, value);
                 }
 
-                body.to_string()
+                body
             },
             None => {
                 String::from("")
@@ -372,7 +375,7 @@ impl Resource {
             }
         }
 
-        return params;
+        params
     }
 
     pub(crate) fn build_response(&self, uri: &str) -> String {
@@ -407,7 +410,7 @@ impl Resource {
         if let Ok(mut listeners) = self.stream_listeners.lock() {
             let mut invalid_listeners = vec!();
             for (i, listener) in listeners.iter().enumerate() {
-                if let Err(_) = listener.send(String::from(data)) {
+                if listener.send(String::from(data)).is_err() {
                     invalid_listeners.push(i);
                 }
             }
@@ -534,7 +537,7 @@ impl Resource {
             }
         }
 
-        return true;
+        true
     }
 }
 

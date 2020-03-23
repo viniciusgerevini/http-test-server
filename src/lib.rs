@@ -253,7 +253,7 @@ impl TestServer {
     /// ```
     pub fn close(&self) {
         if let Ok(mut stream) = TcpStream::connect(format!("localhost:{}", self.port)) {
-            stream.write(b"CLOSE").unwrap();
+            stream.write_all(b"CLOSE").unwrap();
             stream.flush().unwrap();
         }
     }
@@ -296,7 +296,8 @@ impl TestServer {
         let (tx, rx) = mpsc::channel();
 
         *self.requests_tx.lock().unwrap() = Some(tx);
-        return rx;
+
+        rx
     }
 }
 
@@ -320,7 +321,7 @@ fn handle_connection(stream: &TcpStream, resources: ServerResources, requests_tx
             thread::sleep(delay);
         }
 
-        write_stream.write(resource.build_response(&url).as_bytes()).unwrap();
+        write_stream.write_all(resource.build_response(&url).as_bytes()).unwrap();
         write_stream.flush().unwrap();
 
         if let Some(ref tx) = *requests_tx.lock().unwrap() {
@@ -343,7 +344,7 @@ fn handle_connection(stream: &TcpStream, resources: ServerResources, requests_tx
         if resource.is_stream() {
             let receiver = resource.stream_receiver();
             for line in receiver.iter() {
-                write_stream.write(line.as_bytes()).unwrap();
+                write_stream.write_all(line.as_bytes()).unwrap();
                 write_stream.flush().unwrap();
             }
         }
@@ -352,7 +353,7 @@ fn handle_connection(stream: &TcpStream, resources: ServerResources, requests_tx
 }
 
 fn parse_header(message: String) -> (String, String) {
-    let parts: Vec<&str> = message.splitn(2, ":").collect();
+    let parts: Vec<&str> = message.splitn(2, ':').collect();
     (String::from(parts[0]), String::from(parts[1].trim()))
 }
 
@@ -374,13 +375,13 @@ fn find_resource(method: String, url: String, resources: ServerResources) -> Res
         return Resource::new(&url).status(Status::NotFound).clone();
     }
 
-    return match resources.iter().find(|r| { r.get_method().equal(&method) }) {
+    match resources.iter().find(|r| { r.get_method().equal(&method) }) {
         Some(resource) => {
             resource.increment_request_count();
             resource.clone()
         },
         None => Resource::new(&url).status(Status::MethodNotAllowed).clone()
-    };
+    }
 }
 
 /// Request information
