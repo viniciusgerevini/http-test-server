@@ -208,7 +208,7 @@ impl Resource {
     /// resource.body("Response for user: {path.userId} filter: {query.filter}");
     /// ```
     pub fn body(&self, content: &'static str) -> &Resource {
-        if let Some(_) = *self.body_builder.lock().unwrap() {
+        if self.body_builder.lock().unwrap().is_some() {
             panic!("You can't define 'body' when 'body_fn' is already defined");
         }
 
@@ -240,7 +240,7 @@ impl Resource {
     ///
     /// ```
     pub fn body_fn(&self, builder: impl Fn(RequestParameters) -> String + Send + 'static) -> &Resource {
-        if let Some(_) = *self.body.lock().unwrap() {
+        if self.body.lock().unwrap().is_some() {
             panic!("You can't define 'body_fn' when 'body' is already defined");
         }
 
@@ -407,7 +407,7 @@ impl Resource {
         if let Ok(mut listeners) = self.stream_listeners.lock() {
             let mut invalid_listeners = vec!();
             for (i, listener) in listeners.iter().enumerate() {
-                if let Err(_) = listener.send(String::from(data)) {
+                if listener.send(String::from(data)).is_err() {
                     invalid_listeners.push(i);
                 }
             }
