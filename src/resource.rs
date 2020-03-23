@@ -295,7 +295,7 @@ impl Resource {
     }
 
     pub(crate) fn get_delay(&self) -> Option<Duration> {
-        (*self.delay.lock().unwrap()).clone()
+        *self.delay.lock().unwrap()
     }
 
     /// Set response as stream, this means clients won't be disconnected after body is sent and
@@ -349,7 +349,7 @@ impl Resource {
                     body = body.replace(&key, value);
                 }
 
-                body.to_string()
+                body
             },
             None => {
                 String::from("")
