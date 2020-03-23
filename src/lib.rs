@@ -296,7 +296,8 @@ impl TestServer {
         let (tx, rx) = mpsc::channel();
 
         *self.requests_tx.lock().unwrap() = Some(tx);
-        return rx;
+
+        rx
     }
 }
 
@@ -374,13 +375,13 @@ fn find_resource(method: String, url: String, resources: ServerResources) -> Res
         return Resource::new(&url).status(Status::NotFound).clone();
     }
 
-    return match resources.iter().find(|r| { r.get_method().equal(&method) }) {
+    match resources.iter().find(|r| { r.get_method().equal(&method) }) {
         Some(resource) => {
             resource.increment_request_count();
             resource.clone()
         },
         None => Resource::new(&url).status(Status::MethodNotAllowed).clone()
-    };
+    }
 }
 
 /// Request information

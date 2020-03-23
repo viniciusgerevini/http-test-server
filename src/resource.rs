@@ -372,7 +372,7 @@ impl Resource {
             }
         }
 
-        return params;
+        params
     }
 
     pub(crate) fn build_response(&self, uri: &str) -> String {
@@ -534,7 +534,7 @@ impl Resource {
             }
         }
 
-        return true;
+        true
     }
 }
 
