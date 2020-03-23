@@ -253,7 +253,7 @@ impl TestServer {
     /// ```
     pub fn close(&self) {
         if let Ok(mut stream) = TcpStream::connect(format!("localhost:{}", self.port)) {
-            stream.write(b"CLOSE").unwrap();
+            stream.write_all(b"CLOSE").unwrap();
             stream.flush().unwrap();
         }
     }
@@ -321,7 +321,7 @@ fn handle_connection(stream: &TcpStream, resources: ServerResources, requests_tx
             thread::sleep(delay);
         }
 
-        write_stream.write(resource.build_response(&url).as_bytes()).unwrap();
+        write_stream.write_all(resource.build_response(&url).as_bytes()).unwrap();
         write_stream.flush().unwrap();
 
         if let Some(ref tx) = *requests_tx.lock().unwrap() {
@@ -344,7 +344,7 @@ fn handle_connection(stream: &TcpStream, resources: ServerResources, requests_tx
         if resource.is_stream() {
             let receiver = resource.stream_receiver();
             for line in receiver.iter() {
-                write_stream.write(line.as_bytes()).unwrap();
+                write_stream.write_all(line.as_bytes()).unwrap();
                 write_stream.flush().unwrap();
             }
         }
