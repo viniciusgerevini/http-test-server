@@ -6,7 +6,7 @@ readme = "README.md"
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/viniciusgerevini/http-test-server"
 description = "Programatically create resources and pre-defined responses for tests"
-keywords = ["http", "test", "server", "stream"]
+keywords = ["http", "test", "testing", "mock", "server", "stream"]
 
 [dependencies]
 regex = "1"
