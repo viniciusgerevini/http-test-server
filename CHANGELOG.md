@@ -2,6 +2,13 @@
 
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
+## 2.1.0 (2020-05-29)
+
+### Changed
+
+- bind server to `127.0.0.1` instead of `localhost`. This allows faster connections, as it doesn't require host lookup. Also, it may prevent issues as it doesn't rely on OS hosts configuration.
+
+
 ## 2.0.1 (2020-04-14)
 
 ### Changed
