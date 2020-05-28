@@ -142,9 +142,9 @@
 //! *NOTE*: This is not intended to work as a full featured server. For this reason, many validations
 //! and behaviours are not implemented. e.g: A request with `Accept` header with not supported
 //! `Content-Type` won't trigger a `406 Not Acceptable`.
-//! 
+//!
 //! As this crate was devised to be used in tests, smart behaviours could be confusing and misleading. Having said that, for the sake of convenience, some default behaviours were implemented:
-//! 
+//!
 //! - Server returns `404 Not Found` when requested resource was not configured.
 //! - Server returns `405 Method Not Allowed` when trying to reach resource with different method from those configured.
 //! - When a resource is created it responds to `GET` with `200 Ok` by default.
@@ -201,7 +201,7 @@ impl TestServer {
     ///
     /// ```
     pub fn new_with_port(port: u16) -> Result<TestServer, Error> {
-        let listener = TcpListener::bind(format!("localhost:{}", port)).unwrap();
+        let listener = TcpListener::bind(format!("127.0.0.1:{}", port)).unwrap();
         let port = listener.local_addr()?.port();
         let resources: ServerResources = Arc::new(Mutex::new(vec!()));
         let requests_tx = Arc::new(Mutex::new(None));
@@ -252,7 +252,7 @@ impl TestServer {
     /// server.close();
     /// ```
     pub fn close(&self) {
-        if let Ok(mut stream) = TcpStream::connect(format!("localhost:{}", self.port)) {
+        if let Ok(mut stream) = TcpStream::connect(format!("127.0.0.1:{}", self.port)) {
             stream.write_all(b"CLOSE").unwrap();
             stream.flush().unwrap();
         }
@@ -416,7 +416,7 @@ mod tests {
     }
 
     fn request(port: u16, uri: &str, method: &str) -> TcpStream {
-        let host = format!("localhost:{}", port);
+        let host = format!("127.0.0.1:{}", port);
         let mut stream = TcpStream::connect(host).unwrap();
         let request = format!(
             "{} {} HTTP/1.1\r\nContent-Type: text\r\n\r\n",
@@ -457,7 +457,7 @@ mod tests {
 
         thread::sleep(Duration::from_millis(200));
 
-        let host = format!("localhost:{}", server.port());
+        let host = format!("127.0.0.1:{}", server.port());
         let stream = TcpStream::connect(host);
 
         assert!(stream.is_err());
