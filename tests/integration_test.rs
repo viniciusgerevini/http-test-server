@@ -107,6 +107,25 @@ fn test_request_to_regex_uri() {
     assert_eq!(resource.request_count(), 1);
 }
 
+#[test]
+fn request_to_loopback_ip() {
+    let server = TestServer::new().unwrap();
+    let resource = server.create_resource("/hello");
+
+    let host = format!("127.0.0.1:{}", server.port());
+    let mut stream = TcpStream::connect(host).unwrap();
+
+    stream.write("GET /hello HTTP/1.1\r\n\r\n".as_bytes()).unwrap();
+    stream.flush().unwrap();
+
+    let mut reader = BufReader::new(stream);
+    let mut response = String::new();
+    reader.read_to_string(&mut response).unwrap();
+
+    assert_eq!(response, "HTTP/1.1 200 Ok\r\n\r\n");
+    assert_eq!(resource.request_count(), 1);
+}
+
 
 fn request(port: u16, uri: &str, method: &str) -> String {
     let stream = open_stream(port, uri, method);
