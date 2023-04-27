@@ -2,6 +2,17 @@
 
 This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
+## 2.1.1 (2023-04-26)
+
+### Fixed
+
+- When defining multiple resources the first one was being returned.
+
+### Thanks
+
+Thanks Marc (@marcbrevoort-cyberhive) for finding, investigating and fixing this issue.
+
+
 ## 2.1.0 (2020-05-29)
 
 ### Changed

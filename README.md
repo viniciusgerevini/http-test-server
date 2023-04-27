@@ -1,6 +1,6 @@
 # HTTP Test Server
 
-[![Documentation](https://docs.rs/http-test-server/badge.svg)](https://docs.rs/http-test-server/) [![Build Status](https://travis-ci.com/viniciusgerevini/http-test-server.svg?branch=master)](https://travis-ci.com/viniciusgerevini/http-test-server)
+[![Documentation](https://docs.rs/http-test-server/badge.svg)](https://docs.rs/http-test-server/) [![Build Status](https://github.com/viniciusgerevini/http-test-server/actions/workflows/rust.yml/badge.svg)](https://github.com/viniciusgerevini/http-test-server/actions/workflows/rust.yml)
 
 Programatically create end-points that listen for connections and return pre-defined responses.
 
