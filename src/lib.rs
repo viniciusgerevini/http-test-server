@@ -369,20 +369,23 @@ fn parse_request_header(reader: &mut dyn BufRead) -> (String, String) {
 
 fn find_resource(method: String, url: String, resources: ServerResources) -> Resource {
     let resources = resources.lock().unwrap();
-    let resources_for_uri = resources.iter().filter(|r| r.matches_uri(&url));
 
-    if resources_for_uri.count() == 0 {
-        return Resource::new(&url).status(Status::NotFound).clone();
-    }
-
-    match resources.iter().find(|r| { r.get_method().equal(&method) }) {
+    match resources.iter().find(|r| r.matches_uri(&url) && r.get_method().equal(&method) ) {
         Some(resource) => {
             resource.increment_request_count();
             resource.clone()
         },
-        None => Resource::new(&url).status(Status::MethodNotAllowed).clone()
+        None => {
+            // resource not found, check whether to show 404 or MethodNotAllowed.
+            let resources_for_uri = resources.iter().filter(|r| r.matches_uri(&url));
+            if resources_for_uri.count() == 0 {
+                return Resource::new(&url).status(Status::NotFound).clone();
+            }
+            Resource::new(&url).status(Status::MethodNotAllowed).clone()
+        }
     }
 }
+
 
 /// Request information
 ///
@@ -464,6 +467,28 @@ mod tests {
         if let Err(e) = stream {
             assert_eq!(e.kind(), ErrorKind::ConnectionRefused);
         }
+    }
+
+    #[test]
+    fn should_handle_multiple_resources() {
+        let server = TestServer::new().unwrap();
+        let resource = server.create_resource("/this");
+        resource.status(Status::OK).body("<this body>");
+        thread::sleep(Duration::from_millis(200));
+        let resource2 = server.create_resource("/that");
+        resource2.status(Status::OK).body("<that body>");
+
+        assert_eq!(resource.request_count(), 0);
+        assert_eq!(resource2.request_count(), 0);
+
+        let _ = make_request(server.port(), "/this");
+
+        thread::sleep(Duration::from_millis(200));
+        let _ = make_request(server.port(), "/that");
+        thread::sleep(Duration::from_millis(200));
+
+        assert_eq!(resource.request_count(), 1);
+        assert_eq!(resource2.request_count(), 1);
     }
 
     #[test]
